@@ -9,7 +9,7 @@ namespace Utilities
     /// <summary>
     /// A table for interning strings.
     /// </summary>
-    public class StringTable : IEnumerable<string>
+    internal class StringTable : IEnumerable<string>
     {
         private Bucket[] buckets;
         private int count;

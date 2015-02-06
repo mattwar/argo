@@ -3,7 +3,7 @@ using System.Threading;
 
 namespace Utilities
 {
-    public class ArrayPool<T>
+    internal class ArrayPool<T>
     {
         private ObjectPool<T[]>[] pools;
 

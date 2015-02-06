@@ -5,7 +5,7 @@ using System.Linq;
 
 namespace Utilities
 {
-    public static class TypeHelper
+    internal static class TypeHelper
     {
         public static Type GetNonNullableType(Type type)
         {

@@ -3,7 +3,7 @@ using System.Threading;
 
 namespace Utilities
 {
-    public class ObjectPool<T>
+    internal class ObjectPool<T>
         where T : class
     {
         private readonly Func<T> creator;
