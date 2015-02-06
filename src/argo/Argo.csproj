@@ -44,16 +44,15 @@
     <Reference Include="System.Xml" />
   </ItemGroup>
   <ItemGroup>
-    <Compile Include="EncodingMember.cs" />
-    <Compile Include="JsonEncoding.cs" />
-    <Compile Include="JsonEncoding_JsonDecoder.cs" />
-    <Compile Include="JsonEncoding_JsonEncoder.cs" />
-    <Compile Include="ObjectEncoding.cs" />
+    <Compile Include="Json_EncodingMember.cs" />
+    <Compile Include="Json.cs" />
+    <Compile Include="Json_Decoder.cs" />
+    <Compile Include="Json_Encoder.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
-    <Compile Include="StringEncoding.cs" />
     <Compile Include="Utilities\ArrayPool.cs" />
     <Compile Include="Utilities\ObjectPool.cs" />
     <Compile Include="Utilities\StringTable.cs" />
+    <Compile Include="Utilities\TypeHelper.cs" />
   </ItemGroup>
   <ItemGroup>
     <None Include="App.config" />

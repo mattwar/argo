@@ -13,7 +13,7 @@ namespace Argo
 {
     using Utilities;
 
-    public partial class JsonEncoding
+    public static partial class Json
     {
         private class JsonDecoder
         {
@@ -51,7 +51,7 @@ namespace Argo
                 }
                 else if (IsToken(text, offset, '"'))
                 {
-                    return DecodeString(text, ref offset, typeof(string));
+                    return GetDecoder<string>().DecodeTyped(this, text, ref offset);
                 }
                 else if (IsToken(text, offset, '['))
                 {
@@ -74,33 +74,6 @@ namespace Argo
                     {
                         return dec;
                     }
-                }
-            }
-
-            private object DecodeString(string text, ref int offset, Type type)
-            {
-                ConsumeToken(text, ref offset, '"');
-
-                var start = offset;
-
-                while (offset < text.Length && PeekChar(text, offset) != '"')
-                {
-                    offset++;
-                }
-
-                var end = offset;
-
-                ConsumeToken(text, ref offset, '"');
-
-                var value = this.strings.GetOrAdd(text, start, end - start);
-
-                if (type == typeof(string) || type == typeof(object))
-                {
-                    return value;
-                }
-                else
-                {
-                    return StringEncoding.Instance.Decode(value, type);
                 }
             }
 
@@ -579,7 +552,7 @@ namespace Argo
                 public override void DecodeInto(JsonDecoder decoder, string text, ref int offset, ref TInstance instance)
                 {
                     var value = this.valueDecoder.DecodeTyped(decoder, text, ref offset);
-                    this.member.SetTypedValue(instance, value);
+                    this.member.SetTypedValue(ref instance, value);
                 }
             }
 
@@ -629,9 +602,29 @@ namespace Argo
 
             private class StringDecoder<T> : ValueDecoder<T>
             {
+                private readonly Func<string, T> parser;
+
+                public StringDecoder(Func<string, T> parser)
+                {
+                    this.parser = parser;
+                }
+
                 public override T DecodeTyped(JsonDecoder decoder, string text, ref int offset)
                 {
-                    return (T)decoder.DecodeString(text, ref offset, typeof(T));
+                    var start = offset;
+
+                    while (offset < text.Length && PeekChar(text, offset) != '"')
+                    {
+                        offset++;
+                    }
+
+                    var end = offset;
+
+                    ConsumeToken(text, ref offset, '"');
+
+                    var value = decoder.strings.GetOrAdd(text, start, end - start);
+
+                    return this.parser(value);
                 }
             }
 
@@ -658,8 +651,36 @@ namespace Argo
                 }
             }
 
+            private class NullDecoder<T> : ValueDecoder<T>
+                where T : class
+            {
+                private readonly ValueDecoder<T> valueDecoder;
+
+                public NullDecoder(ValueDecoder<T> valueDecoder)
+                {
+                    this.valueDecoder = valueDecoder;
+                }
+
+                public override T DecodeTyped(JsonDecoder decoder, string text, ref int offset)
+                {
+                    if (TryConsumeToken(text, ref offset, "null"))
+                    {
+                        return null;
+                    }
+                    else
+                    {
+                        return this.valueDecoder.DecodeTyped(decoder, text, ref offset);
+                    }
+                }
+            }
+
             private static readonly ConcurrentDictionary<Type, ValueDecoder> valueDecoders
                 = new ConcurrentDictionary<Type, ValueDecoder>();
+
+            private static ValueDecoder<T> GetDecoder<T>()
+            {
+                return (ValueDecoder<T>)GetDecoder(typeof(T));
+            }
 
             private static ValueDecoder GetDecoder(Type type)
             {
@@ -675,12 +696,16 @@ namespace Argo
 
             private static ValueDecoder CreateDecoder(Type type)
             {
-                var nnType = GetNonNullableType(type);
-                ValueDecoder decoder = CreateNonNullDecoder(nnType);
+                var nnType = TypeHelper.GetNonNullableType(type);
+                ValueDecoder decoder = CreateTypeDecoder(nnType);
 
                 if (nnType != type)
                 {
                     decoder = (ValueDecoder)Activator.CreateInstance(typeof(NullableDecoder<>).MakeGenericType(nnType), new object[] { decoder });
+                }
+                else if (type.IsClass || type.IsInterface)
+                {
+                    decoder = (ValueDecoder)Activator.CreateInstance(typeof(NullDecoder<>).MakeGenericType(type), new object[] { decoder });
                 }
 
                 return decoder;
@@ -688,7 +713,7 @@ namespace Argo
 
             private static readonly object[] NoArgs = new object[0];
 
-            private static ValueDecoder CreateNonNullDecoder(Type type)
+            private static ValueDecoder CreateTypeDecoder(Type type)
             {
                 // arrays
                 if (type.IsArray)
@@ -696,17 +721,19 @@ namespace Argo
                     return (ValueDecoder)Activator.CreateInstance(typeof(ArrayDecoder<>).MakeGenericType(type.GetElementType()), NoArgs);
                 }
 
-                var defaultConstructor = type.GetConstructors(BindingFlags.Instance | BindingFlags.Public).FirstOrDefault(c => c.GetParameters().Length == 0);
+                var hasPublicDefaultConstructor = 
+                    type.IsValueType || 
+                    type.GetConstructors(BindingFlags.Instance | BindingFlags.Public).FirstOrDefault(c => c.GetParameters().Length == 0) != null;
 
                 // compatible with dictionary patterns?
                 Type keyType;
                 Type valueType;
-                if (TryGetDictionaryTypes(type, out keyType, out valueType))
+                if (TypeHelper.TryGetDictionaryTypes(type, out keyType, out valueType))
                 {
                     // type has default constructor and compatible Add method.
                     var addMethodArgTypes = new Type[] { keyType, valueType };
                     var addMethod = type.GetMethods(BindingFlags.Instance | BindingFlags.Public).FirstOrDefault(m => IsMatchingMethod(m, "Add", addMethodArgTypes));
-                    if (defaultConstructor != null && addMethod != null)
+                    if (hasPublicDefaultConstructor && addMethod != null)
                     {
                         var actionType = typeof(Action<,,>).MakeGenericType(type, keyType, valueType);
                         var keyValueAdder = Delegate.CreateDelegate(actionType, addMethod);
@@ -715,7 +742,7 @@ namespace Argo
                             new object[] { keyValueAdder });
                     }
 
-                    // type has constructor that has argument compatible with dictionary
+                    // type has constructor with argument that is compatible with dictionary
                     var constructorArgTypes = new Type[] { typeof(Dictionary<,>).MakeGenericType(keyType, valueType) };
                     var constructor = type.GetConstructors(BindingFlags.Instance | BindingFlags.Public).FirstOrDefault(c => IsMatchingConstructor(c, constructorArgTypes));
                     if (constructor != null)
@@ -728,13 +755,13 @@ namespace Argo
                 }
 
                 // compatible with list patterns?
-                var elementType = GetElementType(type);
+                var elementType = TypeHelper.GetElementType(type);
                 if (elementType != null)
                 {
                     // has default constructor and compatible Add method.
                     var addMethodArgTypes = new Type[] { elementType };
                     var addMethod = type.GetMethods(BindingFlags.Instance | BindingFlags.Public).FirstOrDefault(m => IsMatchingMethod(m, "Add", addMethodArgTypes));
-                    if (defaultConstructor != null && addMethod != null)
+                    if (hasPublicDefaultConstructor && addMethod != null)
                     {
                         var actionType = typeof(Action<,>).MakeGenericType(type, elementType);
                         var valueAdder = Delegate.CreateDelegate(actionType, addMethod);
@@ -743,7 +770,7 @@ namespace Argo
                             new object[] { valueAdder });
                     }
 
-                    // type has constructor that has argument compatible with list
+                    // type has constructor with argument that is compatible with list
                     var constructorArgTypes = new Type[] { typeof(List<>).MakeGenericType(elementType) };
                     var constructor = type.GetConstructors(BindingFlags.Instance | BindingFlags.Public).FirstOrDefault(c => IsMatchingConstructor(c, constructorArgTypes));
                     if (constructor != null)
@@ -756,16 +783,21 @@ namespace Argo
                 }
 
                 // types with assignable members
-                var members = GetEncodingMembers(type);
-                if (members.Count > 0 && members.All(m => m.CanWrite) && defaultConstructor != null)
+                var members = EncodingMember.GetEncodingMembers(type).Where(m => m.CanWrite).ToList().ToList();
+                if (members.Count > 0 && hasPublicDefaultConstructor)
                 {
                     return (ValueDecoder)Activator.CreateInstance(typeof(ObjectMemberDecoder<>).MakeGenericType(type), new object[] { members });
                 }
 
                 // can be parsed from string?
-                if (StringEncoding.Instance.CanDecode(type))
+                var parseMethod = type.GetMethods(BindingFlags.Static | BindingFlags.Public)
+                    .FirstOrDefault(m => m.Name == "Parse" && m.GetParameters().Length == 1 && m.GetParameters()[0].ParameterType == typeof(string));
+
+                if (parseMethod != null)
                 {
-                    return (ValueDecoder)Activator.CreateInstance(typeof(StringDecoder<>).MakeGenericType(type), NoArgs);
+                    var dType = typeof(Func<,>).MakeGenericType(typeof(string), type);
+                    var parser = Delegate.CreateDelegate(dType, parseMethod, throwOnBindFailure: true);
+                    return (ValueDecoder)Activator.CreateInstance(typeof(StringDecoder<>).MakeGenericType(type), new object[] { parser });
                 }
 
                 throw new InvalidOperationException(string.Format("The type '{0}' cannot be decoded from JSON.", type));
@@ -838,18 +870,10 @@ namespace Argo
                 InitStructDecoder(new NumberDecoder<double>(d => d, d => (double)d));
                 InitStructDecoder(new NumberDecoder<decimal>(d => (decimal)d, d => d));
 
+                InitClassDecoder(new StringDecoder<string>(s => s));
+
                 InitClassDecoder(new FuncDecoder<object>((JsonDecoder d, string text, ref int offset) =>
                     d.DecodeObject(text, ref offset)));
-
-                InitClassDecoder(new FuncDecoder<string>((JsonDecoder d, string text, ref int offset) =>
-                {
-                    if (TryConsumeToken(text, ref offset, "null"))
-                    {
-                        return null;
-                    }
-
-                    return (string)d.DecodeString(text, ref offset, typeof(string));
-                }));
 
                 InitStructDecoder(new FuncDecoder<bool>((JsonDecoder d, string text, ref int offset) =>
                 {
@@ -871,7 +895,7 @@ namespace Argo
             private static void InitClassDecoder<T>(ValueDecoder<T> decoder)
                 where T : class
             {
-                valueDecoders.TryAdd(typeof(T), decoder);
+                valueDecoders.TryAdd(typeof(T), new NullDecoder<T>(decoder));
             }
 
             private static void InitStructDecoder<T>(ValueDecoder<T> decoder)
@@ -879,11 +903,6 @@ namespace Argo
             {
                 valueDecoders.TryAdd(typeof(T), decoder);
                 valueDecoders.TryAdd(typeof(T?), new NullableDecoder<T>(decoder));
-            }
-
-            private static ValueDecoder<T> GetDecoder<T>()
-            {
-                return (ValueDecoder<T>)GetDecoder(typeof(T));
             }
         }
     }

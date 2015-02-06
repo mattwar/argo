@@ -12,10 +12,16 @@ namespace Argo
 {
     using Utilities;
 
-    public partial class JsonEncoding
+    public static partial class Json
     {
         private class JsonEncoder
         {
+            public static readonly JsonEncoder Instance = new JsonEncoder();
+
+            private JsonEncoder()
+            {
+            }
+
             static JsonEncoder()
             {
                 InitEncoders();
@@ -34,9 +40,15 @@ namespace Argo
                 }
             }
 
+            public void Encode<T>(TextWriter writer, T value)
+            {
+                var encoder = GetEncoder<T>();
+                encoder.EncodeTyped(this, writer, value);
+            }
+
             private void EncodeString<T>(TextWriter writer, T value)
             {
-                var text = StringEncoding.Instance.Encode(value, typeof(T));
+                var text = value.ToString();
                 writer.Write('"');
                 writer.Write(text); // TODO: escapes for Json string.
                 writer.Write('"');
@@ -69,12 +81,6 @@ namespace Argo
 
                 public override void EncodeTyped(JsonEncoder encoder, TextWriter writer, T pairs)
                 {
-                    if (pairs == null)
-                    {
-                        writer.Write("null");
-                        return;
-                    }
-
                     writer.Write("{");
 
                     bool first = true;
@@ -106,17 +112,11 @@ namespace Argo
 
                 public EnumerableEncoder()
                 {
-                    this.elementEncoder = (ValueEncoder<TElem>)GetEncoder(typeof(TElem));
+                    this.elementEncoder = GetEncoder<TElem>();
                 }
 
                 public override void EncodeTyped(JsonEncoder encoder, TextWriter writer, T sequence)
                 {
-                    if (sequence == null)
-                    {
-                        writer.Write("null");
-                        return;
-                    }
-
                     writer.Write("[");
                     bool first = true;
 
@@ -142,22 +142,32 @@ namespace Argo
             {
                 public override void EncodeTyped(JsonEncoder encoder, TextWriter writer, T value)
                 {
-                    if (value == null)
+                    encoder.EncodeString(writer, value);
+                }
+            }
+
+            private class ObjectEncoder : ValueEncoder<object>
+            {
+                public override void EncodeTyped(JsonEncoder encoder, TextWriter writer, object value)
+                {
+                    var type = value.GetType();
+                    if (type == typeof(object))
                     {
-                        writer.Write("null");
+                        writer.Write("{}");
                     }
                     else
                     {
-                        encoder.EncodeString(writer, value);
+                        var typeEncoder = GetEncoder(type);
+                        typeEncoder.Encode(encoder, writer, value);
                     }
                 }
             }
 
-            private class ObjectEncoder<T> : ValueEncoder<T>
+            private class ObjectMemberEncoder<T> : ValueEncoder<T>
             {
                 private readonly ValueEncoder<T>[] memberEncoders;
 
-                public ObjectEncoder(IReadOnlyList<EncodingMember> members)
+                public ObjectMemberEncoder(IReadOnlyList<EncodingMember> members)
                 {
                     this.memberEncoders = members.Select(m =>
                         (ValueEncoder<T>)Activator.CreateInstance(typeof(MemberEncoder<,>).MakeGenericType(typeof(T), m.Type), new object[] { m }))
@@ -166,12 +176,6 @@ namespace Argo
 
                 public override void EncodeTyped(JsonEncoder encoder, TextWriter writer, T value)
                 {
-                    if (value == null)
-                    {
-                        writer.Write("null");
-                        return;
-                    }
-
                     writer.Write("{");
 
                     bool first = true;
@@ -202,14 +206,14 @@ namespace Argo
                 public MemberEncoder(EncodingMember<TInstance, TMember> member)
                 {
                     this.member = member;
-                    this.valueEncoder = (ValueEncoder<TMember>)GetEncoder(typeof(TMember));
+                    this.valueEncoder = GetEncoder<TMember>();
                 }
 
                 public override void EncodeTyped(JsonEncoder encoder, TextWriter writer, TInstance instance)
                 {
                     encoder.EncodeString<string>(writer, member.Name);
                     writer.Write(": ");
-                    this.valueEncoder.EncodeTyped(encoder, writer, this.member.GetTypedValue(instance));
+                    this.valueEncoder.EncodeTyped(encoder, writer, this.member.GetTypedValue(ref instance));
                 }
             }
 
@@ -228,24 +232,58 @@ namespace Argo
                 }
             }
 
+            private class NullableEncoder<T> : ValueEncoder<T?> 
+                where T : struct
+            {
+                private readonly ValueEncoder<T> valueEncoder;
+
+                public NullableEncoder(ValueEncoder<T> valueEncoder)
+                {
+                    this.valueEncoder = valueEncoder;
+                }
+
+                public override void EncodeTyped(JsonEncoder encoder, TextWriter writer, T? value)
+                {
+                    if (value == null)
+                    {
+                        writer.Write("null");
+                    }
+                    else
+                    {
+                        this.valueEncoder.EncodeTyped(encoder, writer, value.GetValueOrDefault());
+                    }
+                }
+            }
+
+            private class NullEncoder<T> : ValueEncoder<T>
+                where T : class
+            {
+                private readonly ValueEncoder<T> valueEncoder;
+
+                public NullEncoder(ValueEncoder<T> valueEncoder)
+                {
+                    this.valueEncoder = valueEncoder;
+                }
+
+                public override void EncodeTyped(JsonEncoder encoder, TextWriter writer, T value)
+                {
+                    if (value == null)
+                    {
+                        writer.Write("null");
+                    }
+                    else
+                    {
+                        this.valueEncoder.EncodeTyped(encoder, writer, value);
+                    }
+                }
+            }
+
             private static readonly ConcurrentDictionary<Type, ValueEncoder> valueEncoders =
                 new ConcurrentDictionary<Type, ValueEncoder>();
 
-            private static void InitEncoders()
+            private static ValueEncoder<T> GetEncoder<T>()
             {
-                valueEncoders.TryAdd(typeof(byte), new ActionEncoder<byte>((writer, value) => writer.Write(value)));
-                valueEncoders.TryAdd(typeof(sbyte), new ActionEncoder<sbyte>((writer, value) => writer.Write(value)));
-                valueEncoders.TryAdd(typeof(short), new ActionEncoder<short>((writer, value) => writer.Write(value)));
-                valueEncoders.TryAdd(typeof(ushort), new ActionEncoder<ushort>((writer, value) => writer.Write(value)));
-                valueEncoders.TryAdd(typeof(int), new ActionEncoder<int>((writer, value) => writer.Write(value)));
-                valueEncoders.TryAdd(typeof(uint), new ActionEncoder<uint>((writer, value) => writer.Write(value)));
-                valueEncoders.TryAdd(typeof(long), new ActionEncoder<long>((writer, value) => writer.Write(value)));
-                valueEncoders.TryAdd(typeof(ulong), new ActionEncoder<ulong>((writer, value) => writer.Write(value)));
-                valueEncoders.TryAdd(typeof(decimal), new ActionEncoder<decimal>((writer, value) => writer.Write(value)));
-                valueEncoders.TryAdd(typeof(float), new ActionEncoder<float>((writer, value) => writer.Write(value)));
-                valueEncoders.TryAdd(typeof(double), new ActionEncoder<double>((writer, value) => writer.Write(value)));
-                valueEncoders.TryAdd(typeof(bool), new ActionEncoder<bool>((writer, value) => writer.Write(value ? "true" : "false")));
-                valueEncoders.TryAdd(typeof(string), new ActionEncoder<string>((writer, value) => writer.Write(value)));
+                return (ValueEncoder<T>)GetEncoder(typeof(T));
             }
 
             private static ValueEncoder GetEncoder(Type type)
@@ -254,15 +292,7 @@ namespace Argo
                 if (!valueEncoders.TryGetValue(type, out encoder))
                 {
                     var tmp = CreateEncoder(type);
-
-                    if (tmp != null)
-                    {
-                        encoder = valueEncoders.GetOrAdd(type, tmp);
-                    }
-                    else
-                    {
-                        throw new InvalidOperationException(string.Format("The type '{0}' cannot be encoded into JSON.", type));
-                    }
+                    encoder = valueEncoders.GetOrAdd(type, tmp);
                 }
 
                 return encoder;
@@ -272,31 +302,82 @@ namespace Argo
 
             private static ValueEncoder CreateEncoder(Type type)
             {
-                if (StringEncoding.Instance.CanDecode(type))
+                var nnType = TypeHelper.GetNonNullableType(type);
+                var encoder = CreateTypeEncoder(nnType);
+
+                if (nnType != type)
+                {
+                    encoder = (ValueEncoder)Activator.CreateInstance(typeof(NullableEncoder<>).MakeGenericType(nnType), new object[] { encoder });
+                }
+                else if (type.IsClass || type.IsInterface)
+                {
+                    encoder = (ValueEncoder)Activator.CreateInstance(typeof(NullEncoder<>).MakeGenericType(type), new object[] { encoder });
+                }
+
+                return encoder;
+            }
+
+            private static ValueEncoder CreateTypeEncoder(Type type)
+            {
+                // can be parsed from string?
+                var parseMethod = type.GetMethods(BindingFlags.Static | BindingFlags.Public)
+                    .FirstOrDefault(m => m.Name == "Parse" && m.GetParameters().Length == 1 && m.GetParameters()[0].ParameterType == typeof(string));
+
+                if (parseMethod != null)
                 {
                     return (ValueEncoder)Activator.CreateInstance(typeof(StringEncoder<>).MakeGenericType(type), NoArgs);
                 }
 
                 Type keyType;
                 Type valueType;
-                if (TryGetDictionaryTypes(type, out keyType, out valueType))
+                if (TypeHelper.TryGetDictionaryTypes(type, out keyType, out valueType))
                 {
                     return (ValueEncoder)Activator.CreateInstance(typeof(DictionaryEncoder<,,>).MakeGenericType(type, keyType, valueType));
                 }
 
                 if (typeof(IEnumerable).IsAssignableFrom(type))
                 {
-                    var elementType = GetElementType(type);
+                    var elementType = TypeHelper.GetElementType(type);
                     return (ValueEncoder)Activator.CreateInstance(typeof(EnumerableEncoder<,>).MakeGenericType(type, elementType));
                 }
 
-                var members = GetEncodingMembers(type);
+                var members = EncodingMember.GetEncodingMembers(type);
                 if (members.Count > 0)
                 {
-                    return (ValueEncoder)Activator.CreateInstance(typeof(ObjectEncoder<>).MakeGenericType(type), new object[] { members });
+                    return (ValueEncoder)Activator.CreateInstance(typeof(ObjectMemberEncoder<>).MakeGenericType(type), new object[] { members });
                 }
 
-                return null;
+                throw new InvalidOperationException(string.Format("The type '{0}' cannot be encoded into JSON.", type));
+            }
+
+            private static void InitEncoders()
+            {
+                InitStructEncoder(new ActionEncoder<byte>((writer, value) => writer.Write(value)));
+                InitStructEncoder(new ActionEncoder<sbyte>((writer, value) => writer.Write(value)));
+                InitStructEncoder(new ActionEncoder<short>((writer, value) => writer.Write(value)));
+                InitStructEncoder(new ActionEncoder<ushort>((writer, value) => writer.Write(value)));
+                InitStructEncoder(new ActionEncoder<int>((writer, value) => writer.Write(value)));
+                InitStructEncoder(new ActionEncoder<uint>((writer, value) => writer.Write(value)));
+                InitStructEncoder(new ActionEncoder<long>((writer, value) => writer.Write(value)));
+                InitStructEncoder(new ActionEncoder<ulong>((writer, value) => writer.Write(value)));
+                InitStructEncoder(new ActionEncoder<decimal>((writer, value) => writer.Write(value)));
+                InitStructEncoder(new ActionEncoder<float>((writer, value) => writer.Write(value)));
+                InitStructEncoder(new ActionEncoder<double>((writer, value) => writer.Write(value)));
+                InitStructEncoder(new ActionEncoder<bool>((writer, value) => writer.Write(value ? "true" : "false")));
+
+                InitClassEncoder(new StringEncoder<string>());
+                InitClassEncoder(new ObjectEncoder());
+            }
+
+            private static void InitStructEncoder<T>(ValueEncoder<T> encoder) where T : struct
+            {
+                valueEncoders.TryAdd(typeof(T), encoder);
+                valueEncoders.TryAdd(typeof(T?), new NullableEncoder<T>(encoder));
+            }
+
+            private static void InitClassEncoder<T>(ValueEncoder<T> encoder) where T : class
+            {
+                valueEncoders.TryAdd(typeof(T), new NullEncoder<T>(encoder));
             }
         }
     }
