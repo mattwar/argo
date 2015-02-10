@@ -25,10 +25,17 @@ namespace Utilities
             }
             else if (typeof(IEnumerable).IsAssignableFrom(type))
             {
-                return type.GetInterfaces()
-                    .Where(i => i.IsGenericType && i.GetGenericTypeDefinition() == typeof(IEnumerable<>))
-                    .Select(i => i.GetGenericArguments()[0]).FirstOrDefault()
-                    ?? typeof(object);
+                if (type.IsGenericType && type.GetGenericTypeDefinition() == typeof(IEnumerable<>))
+                {
+                    return type.GetGenericArguments()[0];
+                }
+                else
+                {
+                    return type.GetInterfaces()
+                        .Where(i => i.IsGenericType && i.GetGenericTypeDefinition() == typeof(IEnumerable<>))
+                        .Select(i => i.GetGenericArguments()[0]).FirstOrDefault()
+                        ?? typeof(object);
+                }
             }
             else
             {

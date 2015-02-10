@@ -2,6 +2,7 @@
 using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
+using System.Text;
 using System.Threading;
 
 namespace Utilities
@@ -62,11 +63,47 @@ namespace Utilities
             return text;
         }
 
+        public string GetOrAdd(StringBuilder text)
+        {
+            var hash = this.Hash(text);
+            var ibucket = hash % this.buckets.Length;
+
+            var bucket = this.buckets[ibucket];
+            if (bucket != null)
+            {
+                var result = this.FindInBucketList(bucket, hash, text);
+                if (result != null)
+                {
+                    return result;
+                }
+            }
+
+            var str = text.ToString();
+            var newBucket = new Bucket { Hash = hash, String = str, Next = bucket };
+            this.buckets[ibucket] = newBucket;
+            this.count++;
+
+            return str;
+        }
+
         private string FindInBucketList(Bucket firstBucket, int hash, string text, int start, int length)
         {
             for (var bucket = firstBucket; bucket != null; bucket = bucket.Next)
             {
                 if (this.Equals(bucket, hash, text, start, length))
+                {
+                    return bucket.String;
+                }
+            }
+
+            return null;
+        }
+
+        private string FindInBucketList(Bucket firstBucket, int hash, StringBuilder text)
+        {
+            for (var bucket = firstBucket; bucket != null; bucket = bucket.Next)
+            {
+                if (this.Equals(bucket, hash, text))
                 {
                     return bucket.String;
                 }
@@ -96,6 +133,27 @@ namespace Utilities
             return true;
         }
 
+        /// <summary>
+        /// Does exact (ordinal) comparison.
+        /// </summary>
+        private bool Equals(Bucket bucket, int hash, StringBuilder text)
+        {
+            if (bucket.Hash != hash || bucket.String.Length != text.Length)
+            {
+                return false;
+            }
+
+            for (int i = 0; i < text.Length; i++)
+            {
+                if (bucket.String[i] != text[i])
+                {
+                    return false;
+                }
+            }
+
+            return true;
+        }
+
         private int Hash(string text)
         {
             return Hash(text, 0, text.Length);
@@ -108,6 +166,18 @@ namespace Utilities
             {
                 hash = hash + i + text[start + i];
             }
+
+            return hash;
+        }
+
+        private int Hash(StringBuilder text)
+        {
+            int hash = 0;
+            for (int i = 0; i < text.Length; i++)
+            {
+                hash = hash + i + text[i];
+            }
+
             return hash;
         }
 

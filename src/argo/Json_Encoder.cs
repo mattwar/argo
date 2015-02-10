@@ -46,12 +46,83 @@ namespace Argo
                 encoder.EncodeTyped(this, writer, value);
             }
 
+            private readonly static char[] escapedChars =
+                new char[] { '"', '/', '\\', '\b', '\f', '\n', '\r', '\t' };
+
             private void EncodeString<T>(TextWriter writer, T value)
             {
                 var text = value.ToString();
+
                 writer.Write('"');
-                writer.Write(text); // TODO: escapes for Json string.
+
+                if (NeedsEscaping(text))
+                {
+                    EncodeEscapes(writer, text);
+                }
+                else
+                {
+                    writer.Write(text);
+                }
+
                 writer.Write('"');
+            }
+
+            private static bool NeedsEscaping(string text)
+            {
+                foreach (var ch in text)
+                {
+                    switch (ch)
+                    {
+                        case '"':
+                        case '\\':
+                            return true;
+                        default:
+                            return char.IsControl(ch);
+                    }
+                }
+
+                return false;
+            }
+
+            private static void EncodeEscapes(TextWriter writer, string text)
+            {
+                foreach (var ch in text)
+                {
+                    switch (ch)
+                    {
+                        case '"':
+                            writer.Write(@"\""");
+                            break;
+                        case '\\':
+                            writer.Write(@"\\");
+                            break;
+                        case '\b':
+                            writer.Write(@"\b");
+                            break;
+                        case '\f':
+                            writer.Write(@"\f");
+                            break;
+                        case '\r':
+                            writer.Write(@"\r");
+                            break;
+                        case '\n':
+                            writer.Write(@"\n");
+                            break;
+                        case '\t':
+                            writer.Write(@"\t");
+                            break;
+                        default:
+                            if (char.IsControl(ch))
+                            {
+                                writer.Write(@"\u{0:x4}", (int)ch);
+                            }
+                            else
+                            {
+                                writer.Write(ch);
+                            }
+                            break;
+                    }
+                }
             }
 
             private abstract class ValueEncoder
@@ -360,9 +431,9 @@ namespace Argo
                 InitStructEncoder(new ActionEncoder<uint>((writer, value) => writer.Write(value)));
                 InitStructEncoder(new ActionEncoder<long>((writer, value) => writer.Write(value)));
                 InitStructEncoder(new ActionEncoder<ulong>((writer, value) => writer.Write(value)));
-                InitStructEncoder(new ActionEncoder<decimal>((writer, value) => writer.Write(value)));
-                InitStructEncoder(new ActionEncoder<float>((writer, value) => writer.Write(value)));
-                InitStructEncoder(new ActionEncoder<double>((writer, value) => writer.Write(value)));
+                InitStructEncoder(new ActionEncoder<decimal>((writer, value) => writer.Write(value.ToString(CultureInfo.InvariantCulture))));
+                InitStructEncoder(new ActionEncoder<float>((writer, value) => writer.Write(value.ToString("R", CultureInfo.InvariantCulture))));
+                InitStructEncoder(new ActionEncoder<double>((writer, value) => writer.Write(value.ToString("R", CultureInfo.InvariantCulture))));
                 InitStructEncoder(new ActionEncoder<bool>((writer, value) => writer.Write(value ? "true" : "false")));
 
                 InitClassEncoder(new StringEncoder<string>());

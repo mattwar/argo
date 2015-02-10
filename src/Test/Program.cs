@@ -5,7 +5,7 @@ namespace Test
     {
         static void Main(string[] args)
         {
-            new JsonEncodingTests().RunTests(args);
+            new TestRunner().RunTests(args);
         }
     }
 }
