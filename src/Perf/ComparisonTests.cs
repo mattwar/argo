@@ -15,6 +15,8 @@ namespace PerfTests
         {
             var iterations = 10000;
 
+            TestDecoding<int>("Int", iterations, @"123");
+            TestDecoding<string>("String", iterations, @"""abcefg""");
             TestDecoding<string>("Escaped String", iterations, @"""abc\r\n\u1234efg""");
             TestDecoding<int[]>("Int Array", iterations, @"[1, 2, 3, 4, 5, 6, 7, 8, 9, 10]");
             TestDecoding<List<int>>("Int List", iterations, @"[1, 2, 3, 4, 5, 6, 7, 8, 9, 10]");

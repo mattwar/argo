@@ -1,5 +1,4 @@
-﻿#define INTERN
-using System;
+﻿using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Collections.Concurrent;
@@ -17,11 +16,35 @@ namespace Argo
     {
         private class JsonDecoder
         {
-#if INTERN
-            private readonly StringTable strings = new StringTable();
-#endif
-            public JsonDecoder()
+            private StringTable strings;
+
+            private JsonDecoder()
             {
+            }
+
+            public static JsonDecoder Create()
+            {
+                return new JsonDecoder();
+            }
+
+            private string InternString(StringBuilder builder)
+            {
+                if (this.strings == null)
+                {
+                    this.strings = new StringTable();
+                }
+
+                return this.strings.GetOrAdd(builder);
+            }
+
+            private string InternString(string text, int offset, int length)
+            {
+                if (this.strings == null)
+                {
+                    this.strings = new StringTable();
+                }
+
+                return this.strings.GetOrAdd(text, offset, length);
             }
 
             public object Decode(string text, ref int offset, Type type)
@@ -188,24 +211,6 @@ namespace Argo
                 }
 
                 throw new InvalidOperationException("The value is not a legal number");
-            }
-
-            private string InternString(StringBuilder builder)
-            {
-#if INTERN
-                return this.strings.GetOrAdd(builder);
-#else
-                return builder.ToString();
-#endif
-            }
-
-            private string InternString(string text, int offset, int length)
-            {
-#if INTERN
-                return this.strings.GetOrAdd(text, offset, length);
-#else
-                return text.Substring(offset, length);
-#endif
             }
 
             private static void SkipWhitespace(string text, ref int offset)

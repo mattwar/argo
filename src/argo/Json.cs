@@ -33,13 +33,13 @@ namespace Argo
         public static T Decode<T>(string value)
         {
             int offset = 0;
-            return new JsonDecoder().Decode<T>(value, ref offset);
+            return JsonDecoder.Create().Decode<T>(value, ref offset);
         }
 
         public static object Decode(string value, Type type)
         {
             int offset = 0;
-            return new JsonDecoder().Decode(value, ref offset, type);
+            return JsonDecoder.Create().Decode(value, ref offset, type);
         }
     }
 }
