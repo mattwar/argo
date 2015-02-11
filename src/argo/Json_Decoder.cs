@@ -1,4 +1,5 @@
-﻿using System;
+﻿#define INTERN
+using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Collections.Concurrent;
@@ -16,8 +17,9 @@ namespace Argo
     {
         private class JsonDecoder
         {
+#if INTERN
             private readonly StringTable strings = new StringTable();
-
+#endif
             public JsonDecoder()
             {
             }
@@ -129,6 +131,7 @@ namespace Argo
                     }
                 }
 
+                bool hasExponent = false;
                 if (PeekChar(text, offset) == 'e' || PeekChar(text, offset) == 'E')
                 {
                     offset++;
@@ -144,7 +147,22 @@ namespace Argo
                     }
                 }
 
-                var number = this.strings.GetOrAdd(text, start, offset - start);
+                if (!hasFraction && !hasExponent)
+                {
+                    for (int x = start; x < offset; x++)
+                    {
+                        dec = dec * 10 + (text[x] - '0');
+                    }
+
+                    if (negate)
+                    {
+                        dec = -dec;
+                    }
+
+                    return NumberKind.Decimal;
+                }
+
+                var number = this.InternString(text, start, offset - start);
 
                 if (type == typeof(float) || type == typeof(double) || (type == typeof(object) && hasFraction))
                 {
@@ -170,6 +188,24 @@ namespace Argo
                 }
 
                 throw new InvalidOperationException("The value is not a legal number");
+            }
+
+            private string InternString(StringBuilder builder)
+            {
+#if INTERN
+                return this.strings.GetOrAdd(builder);
+#else
+                return builder.ToString();
+#endif
+            }
+
+            private string InternString(string text, int offset, int length)
+            {
+#if INTERN
+                return this.strings.GetOrAdd(text, offset, length);
+#else
+                return text.Substring(offset, length);
+#endif
             }
 
             private static void SkipWhitespace(string text, ref int offset)
@@ -691,8 +727,8 @@ namespace Argo
                         ConsumeToken(text, ref offset, '"');
 
                         string value = builder != null
-                            ? decoder.strings.GetOrAdd(builder)
-                            : decoder.strings.GetOrAdd(text, start, end - start);
+                            ? decoder.InternString(builder)
+                            : decoder.InternString(text, start, end - start);
 
                         return this.parser(value);
                     }

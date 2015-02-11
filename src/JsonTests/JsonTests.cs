@@ -6,11 +6,12 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 
-namespace Test
+namespace UnitTests
 {
     using Argo;
+    using Test;
 
-    public class JsonTests
+    public class UnitTests
     {
         private static void TestEncode<T>(T value, string expected)
         {
@@ -212,12 +213,6 @@ namespace Test
         private static TestClass<Tx, Ty> NewTestClass<Tx, Ty>(Tx x, Ty y)
         {
             return new TestClass<Tx, Ty> { X = x, Y = y };
-        }
-
-        private class TestClass<Tx, Ty>
-        {
-            public Tx X { get; set; }
-            public Ty Y;
         }
     }
 }

@@ -7,6 +7,10 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Argo", "argo\Argo.csproj", 
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Test", "Test\Test.csproj", "{7649B6A1-7F54-44B2-B720-509B58AF4A19}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "PerfTests", "Perf\PerfTests.csproj", "{5157AE57-18D4-4D8A-8F1F-F92DC0016771}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "UnitTests", "JsonTests\UnitTests.csproj", "{E2A00BE3-085B-42E1-BC2F-E91A43ED162C}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -21,6 +25,14 @@ Global
 		{7649B6A1-7F54-44B2-B720-509B58AF4A19}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{7649B6A1-7F54-44B2-B720-509B58AF4A19}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{7649B6A1-7F54-44B2-B720-509B58AF4A19}.Release|Any CPU.Build.0 = Release|Any CPU
+		{5157AE57-18D4-4D8A-8F1F-F92DC0016771}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{5157AE57-18D4-4D8A-8F1F-F92DC0016771}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{5157AE57-18D4-4D8A-8F1F-F92DC0016771}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{5157AE57-18D4-4D8A-8F1F-F92DC0016771}.Release|Any CPU.Build.0 = Release|Any CPU
+		{E2A00BE3-085B-42E1-BC2F-E91A43ED162C}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{E2A00BE3-085B-42E1-BC2F-E91A43ED162C}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{E2A00BE3-085B-42E1-BC2F-E91A43ED162C}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{E2A00BE3-085B-42E1-BC2F-E91A43ED162C}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

@@ -228,18 +228,19 @@ namespace Test
                 {
                     Console.ForegroundColor = ConsoleColor.Red;
                     Console.WriteLine("Failed");
-
-                    Console.ForegroundColor = color;
+                    Console.ForegroundColor = ConsoleColor.Magenta;
                     Console.WriteLine(e.Message);
+                    Console.ForegroundColor = color;
                     Console.WriteLine(e.StackTrace);
                 }
                 else
                 {
+                    Console.Write("  {0} - ", testMethod.Name);
                     Console.ForegroundColor = ConsoleColor.Red;
-                    Console.WriteLine("  {0} - Failed", testMethod.Name);
-
-                    Console.ForegroundColor = color;
+                    Console.WriteLine("Failed", testMethod.Name);
+                    Console.ForegroundColor = ConsoleColor.Magenta;
                     Console.WriteLine(e.Message);
+                    Console.ForegroundColor = color;
                     Console.WriteLine(e.StackTrace);
                 }
             }
