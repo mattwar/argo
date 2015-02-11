@@ -77,7 +77,11 @@ namespace Argo
                         case '\\':
                             return true;
                         default:
-                            return char.IsControl(ch);
+                            if (char.IsControl(ch))
+                            {
+                                return true;
+                            }
+                            break;
                     }
                 }
 
