@@ -13,7 +13,6 @@ namespace PerfTests
     {
         public void TestDecoding()
         {
-#if !DEBUG
             var iterations = 10000;
 
             TestDecoding<string>("Escaped String", iterations, @"""abc\r\n\u1234efg""");
@@ -23,9 +22,6 @@ namespace PerfTests
             TestDecoding<Dictionary<string, int>>("Dictionary", iterations, @"{""A"": 1, ""B"": 2, ""C"": 3}");
             TestDecoding<TestClass<string, int>>("Class", iterations, @"{""X"": ""A"", ""Y"": 1}");
             TestDecoding<TestStruct<string, int>>("Struct", iterations, @"{""X"": ""A"", ""Y"": 1}");
-#else
-            throw new Exception("Do not run performance tests as DEBUG");
-#endif
         }
 
         private void TestDecoding<T>(string title, int iterations, string json)
@@ -50,7 +46,7 @@ namespace PerfTests
             Console.WriteLine(title);
             Console.WriteLine("Argo:   {0}", argoTime * 100000);
             Console.WriteLine("ASP:    {0}", aspTime * 100000);
-            Console.WriteLine("Newton  {0}", newtonTime * 100000);
+            Console.WriteLine("Newton: {0}", newtonTime * 100000);
         }
 
         private double RunTimedTest(int iterations, Action<int> action)
