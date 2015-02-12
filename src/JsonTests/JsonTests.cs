@@ -131,6 +131,9 @@ namespace UnitTests
             TestEncodeDecode('\0', @"""\u0000""");
             TestEncodeDecode((char)1, @"""\u0001""");
 
+            // non zero-index encoded characters
+            TestEncodeDecode(@"c:\directory\file.txt", @"""c:\\directory\\file.txt""");
+
             TestEncode("/", @"""/"""); // doesn't need to be encoded.
             TestDecode(@"""\/""", "/"); // but can be decoded.
 
