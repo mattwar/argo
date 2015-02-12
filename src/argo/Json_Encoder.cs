@@ -14,7 +14,7 @@ namespace Argo
 
     public static partial class Json
     {
-        private class JsonEncoder
+        private struct JsonEncoder
         {
             private readonly TextWriter writer;
 
