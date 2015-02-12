@@ -14,17 +14,17 @@ namespace Argo
 
     public static partial class Json
     {
-        private class JsonDecoder
+        private struct JsonDecoder
         {
+            private string text;
+            private int offset;
             private StringTable strings;
 
-            private JsonDecoder()
+            public JsonDecoder(string text)
             {
-            }
-
-            public static JsonDecoder Create()
-            {
-                return new JsonDecoder();
+                this.text = text;
+                this.offset = 0;
+                this.strings = null;
             }
 
             private string InternString(StringBuilder builder)
@@ -37,7 +37,7 @@ namespace Argo
                 return this.strings.GetOrAdd(builder);
             }
 
-            private string InternString(string text, int offset, int length)
+            private string InternString(int offset, int length)
             {
                 if (this.strings == null)
                 {
@@ -47,50 +47,52 @@ namespace Argo
                 return this.strings.GetOrAdd(text, offset, length);
             }
 
-            public object Decode(string text, ref int offset, Type type)
+            public static object Decode(string text, Type type)
             {
-                var decoder = GetValueDecoder(type);
-                return decoder.Decode(this, text, ref offset);
+                var decoder = new JsonDecoder(text); 
+                var valueDecoder = GetValueDecoder(type);
+                return valueDecoder.Decode(ref decoder);
             }
 
-            public T Decode<T>(string text, ref int offset)
+            public static T Decode<T>(string text)
             {
-                var decoder = GetValueDecoder<T>();
-                return decoder.DecodeTyped(this, text, ref offset);
+                var decoder = new JsonDecoder(text);
+                var valueDecoder = GetValueDecoder<T>();
+                return valueDecoder.DecodeTyped(ref decoder);
             }
 
-            private object DecodeObject(string text, ref int offset)
+            private static object DecodeObject(ref JsonDecoder decoder)
             {
-                if (TryConsumeToken(text, ref offset, "null"))
+                if (decoder.TryConsumeToken("null"))
                 {
                     return null;
                 }
-                else if (TryConsumeToken(text, ref offset, "true"))
+                else if (decoder.TryConsumeToken("true"))
                 {
                     return true;
                 }
-                else if (TryConsumeToken(text, ref offset, "false"))
+                else if (decoder.TryConsumeToken("false"))
                 {
                     return false;
                 }
-                else if (IsToken(text, offset, '"'))
+                else if (decoder.IsToken('"'))
                 {
-                    return GetValueDecoder<string>().DecodeTyped(this, text, ref offset);
+                    return GetValueDecoder<string>().DecodeTyped(ref decoder);
                 }
-                else if (IsToken(text, offset, '['))
+                else if (decoder.IsToken('['))
                 {
-                    return GetValueDecoder<List<object>>().DecodeTyped(this, text, ref offset);
+                    return GetValueDecoder<List<object>>().DecodeTyped(ref decoder);
                 }
-                else if (IsToken(text, offset, '{'))
+                else if (decoder.IsToken('{'))
                 {
-                    return GetValueDecoder<Dictionary<string, object>>().DecodeTyped(this, text, ref offset);
+                    return GetValueDecoder<Dictionary<string, object>>().DecodeTyped(ref decoder);
                 }
                 else
                 {
                     double dbl;
                     decimal dec;
                     bool hasFraction;
-                    var kind = DecodeNumber(text, ref offset, typeof(object), out dbl, out dec, out hasFraction);
+                    var kind = decoder.DecodeNumber(typeof(object), out dbl, out dec, out hasFraction);
                     if (kind == NumberKind.Double)
                     {
                         return dbl;
@@ -120,51 +122,51 @@ namespace Argo
                 Decimal
             }
 
-            private NumberKind DecodeNumber(string text, ref int offset, Type type, out double dbl, out decimal dec, out bool hasFraction)
+            private NumberKind DecodeNumber(Type type, out double dbl, out decimal dec, out bool hasFraction)
             {
                 dbl = 0;
                 dec = 0;
 
-                SkipWhitespace(text, ref offset);
+                SkipWhitespace();
 
                 var start = offset;
 
                 bool negate = false;
-                if (PeekChar(text, offset) == '-')
+                if (PeekChar() == '-')
                 {
                     negate = true;
                     offset++;
                     start++;
                 }
 
-                while (Char.IsNumber(PeekChar(text, offset)))
+                while (Char.IsNumber(PeekChar()))
                 {
                     offset++;
                 }
 
                 hasFraction = false;
-                if (PeekChar(text, offset) == '.')
+                if (PeekChar() == '.')
                 {
                     offset++;
                     hasFraction = true;
 
-                    while (Char.IsNumber(PeekChar(text, offset)))
+                    while (Char.IsNumber(PeekChar()))
                     {
                         offset++;
                     }
                 }
 
                 bool hasExponent = false;
-                if (PeekChar(text, offset) == 'e' || PeekChar(text, offset) == 'E')
+                if (PeekChar() == 'e' || PeekChar() == 'E')
                 {
                     offset++;
 
-                    if (PeekChar(text, offset) == '+' || PeekChar(text, offset) == '-')
+                    if (PeekChar() == '+' || PeekChar() == '-')
                     {
                         offset++;
                     }
 
-                    while (Char.IsNumber(PeekChar(text, offset)))
+                    while (Char.IsNumber(PeekChar()))
                     {
                         offset++;
                     }
@@ -185,7 +187,7 @@ namespace Argo
                     return NumberKind.Decimal;
                 }
 
-                var number = this.InternString(text, start, offset - start);
+                var number = InternString(start, offset - start);
 
                 if (type == typeof(float) || type == typeof(double) || (type == typeof(object) && hasFraction))
                 {
@@ -213,7 +215,7 @@ namespace Argo
                 throw new InvalidOperationException("The value is not a legal number");
             }
 
-            private static void SkipWhitespace(string text, ref int offset)
+            private void SkipWhitespace()
             {
                 while (offset < text.Length && Char.IsWhiteSpace(text[offset]))
                 {
@@ -221,7 +223,7 @@ namespace Argo
                 }
             }
 
-            private static char PeekChar(string text, int offset)
+            private char PeekChar()
             {
                 if (offset < text.Length)
                 {
@@ -231,9 +233,9 @@ namespace Argo
                 return '\0';
             }
 
-            private static bool IsToken(string text, int offset, char token)
+            private bool IsToken(char token)
             {
-                SkipWhitespace(text, ref offset);
+                SkipWhitespace();
 
                 if (offset < text.Length)
                 {
@@ -243,9 +245,9 @@ namespace Argo
                 return false;
             }
 
-            private static bool IsToken(string text, int offset, string token)
+            private bool IsToken(string token)
             {
-                SkipWhitespace(text, ref offset);
+                SkipWhitespace();
 
                 if (offset + token.Length <= text.Length)
                 {
@@ -255,27 +257,27 @@ namespace Argo
                 return false;
             }
 
-            private static void ConsumeToken(string text, ref int offset, char token)
+            private void ConsumeToken(char token)
             {
-                if (!TryConsumeToken(text, ref offset, token))
+                if (!TryConsumeToken(token))
                 {
                     throw new InvalidOperationException(string.Format("Expected token '{0}' not found at offset {1}", token, offset));
                 }
             }
 
-            private static void ConsumeToken(string text, ref int offset, string token)
+            private void ConsumeToken(string token)
             {
-                if (!TryConsumeToken(text, ref offset, token))
+                if (!TryConsumeToken(token))
                 {
                     throw new InvalidOperationException(string.Format("Expected token '{0}' not found at offset {1}", token, offset));
                 }
             }
 
-            private static bool TryConsumeToken(string text, ref int offset, char token)
+            private bool TryConsumeToken(char token)
             {
-                SkipWhitespace(text, ref offset);
+                SkipWhitespace();
 
-                if (IsToken(text, offset, token))
+                if (IsToken(token))
                 {
                     offset += 1;
                     return true;
@@ -284,11 +286,11 @@ namespace Argo
                 return false;
             }
 
-            private static bool TryConsumeToken(string text, ref int offset, string token)
+            private bool TryConsumeToken(string token)
             {
-                SkipWhitespace(text, ref offset);
+                SkipWhitespace();
 
-                if (IsToken(text, offset, token))
+                if (IsToken(token))
                 {
                     offset += token.Length;
                     return true;
@@ -300,21 +302,21 @@ namespace Argo
             private abstract class ValueDecoder
             {
                 public abstract Type Type { get; }
-                public abstract object Decode(JsonDecoder decoder, string text, ref int offset);
+                public abstract object Decode(ref JsonDecoder decoder);
             }
 
             private abstract class ValueDecoder<T> : ValueDecoder
             {
-                public abstract T DecodeTyped(JsonDecoder decoder, string text, ref int offset);
+                public abstract T DecodeTyped(ref JsonDecoder decoder);
 
                 public override Type Type
                 {
                     get { return typeof(T); }
                 }
 
-                public override object Decode(JsonDecoder decoder, string text, ref int offset)
+                public override object Decode(ref JsonDecoder decoder)
                 {
-                    return this.DecodeTyped(decoder, text, ref offset);
+                    return this.DecodeTyped(ref decoder);
                 }
             }
 
@@ -328,9 +330,9 @@ namespace Argo
                     this.valueDecoder = valueDecoder;
                 }
 
-                public override S DecodeTyped(JsonDecoder decoder, string text, ref int offset)
+                public override S DecodeTyped(ref JsonDecoder decoder)
                 {
-                    return this.valueDecoder.DecodeTyped(decoder, text, ref offset);
+                    return this.valueDecoder.DecodeTyped(ref decoder);
                 }
             }
 
@@ -338,36 +340,31 @@ namespace Argo
             {
                 private readonly ValueDecoder<TElement> elementDecoder;
 
-                internal static readonly ObjectPool<List<TElement>> listPool = new ObjectPool<List<TElement>>(() => new List<TElement>(), list => list.Clear());
+                internal static readonly ObjectPool<List<TElement>> listPool = new ObjectPool<List<TElement>>(() => new List<TElement>(10), list => list.Clear());
 
                 public ArrayDecoder()
                 {
                     this.elementDecoder = GetValueDecoder<TElement>();
                 }
 
-                public override TElement[] DecodeTyped(JsonDecoder decoder, string text, ref int offset)
+                public override TElement[] DecodeTyped(ref JsonDecoder decoder)
                 {
-                    if (TryConsumeToken(text, ref offset, "null"))
-                    {
-                        return null;
-                    }
-
                     var list = listPool.AllocateFromPool();
                     try
                     {
-                        ConsumeToken(text, ref offset, '[');
+                        decoder.ConsumeToken('[');
 
-                        while (PeekChar(text, offset) != '\0')
+                        while (decoder.PeekChar() != '\0')
                         {
-                            list.Add(this.elementDecoder.DecodeTyped(decoder, text, ref offset));
+                            list.Add(this.elementDecoder.DecodeTyped(ref decoder));
 
-                            if (!TryConsumeToken(text, ref offset, ','))
+                            if (!decoder.TryConsumeToken(','))
                             {
                                 break;
                             }
                         }
 
-                        ConsumeToken(text, ref offset, ']');
+                        decoder.ConsumeToken(']');
 
                         var array = new TElement[list.Count];
                         list.CopyTo(array);
@@ -392,28 +389,23 @@ namespace Argo
                     this.elementAdder = elementAdder;
                 }
 
-                public override T DecodeTyped(JsonDecoder decoder, string text, ref int offset)
+                public override T DecodeTyped(ref JsonDecoder decoder)
                 {
-                    if (TryConsumeToken(text, ref offset, "null"))
-                    {
-                        return null;
-                    }
-
                     var list = new T();
 
-                    ConsumeToken(text, ref offset, '[');
+                    decoder.ConsumeToken('[');
 
-                    while (PeekChar(text, offset) != '\0')
+                    while (decoder.PeekChar() != '\0')
                     {
-                        this.elementAdder(list, this.elementDecoder.DecodeTyped(decoder, text, ref offset));
+                        this.elementAdder(list, this.elementDecoder.DecodeTyped(ref decoder));
 
-                        if (!TryConsumeToken(text, ref offset, ','))
+                        if (!decoder.TryConsumeToken(','))
                         {
                             break;
                         }
                     }
 
-                    ConsumeToken(text, ref offset, ']');
+                    decoder.ConsumeToken(']');
 
                     return list;
                 }
@@ -425,7 +417,7 @@ namespace Argo
                 private readonly ValueDecoder<TElement> elementDecoder;
                 private readonly Func<List<TElement>, T> listConstructor;
 
-                internal static readonly ObjectPool<List<TElement>> listPool = new ObjectPool<List<TElement>>(() => new List<TElement>(), list => list.Clear());
+                internal static readonly ObjectPool<List<TElement>> listPool = new ObjectPool<List<TElement>>(() => new List<TElement>(10), list => list.Clear());
 
                 public ListConstructorDecoder(Func<List<TElement>, T> listConstructor)
                 {
@@ -433,9 +425,9 @@ namespace Argo
                     this.listConstructor = listConstructor;
                 }
 
-                public override T DecodeTyped(JsonDecoder decoder, string text, ref int offset)
+                public override T DecodeTyped(ref JsonDecoder decoder)
                 {
-                    if (TryConsumeToken(text, ref offset, "null"))
+                    if (decoder.TryConsumeToken("null"))
                     {
                         return null;
                     }
@@ -444,19 +436,19 @@ namespace Argo
                     try
                     {
 
-                        ConsumeToken(text, ref offset, '[');
+                        decoder.ConsumeToken('[');
 
-                        while (PeekChar(text, offset) != '\0')
+                        while (decoder.PeekChar() != '\0')
                         {
-                            list.Add(this.elementDecoder.DecodeTyped(decoder, text, ref offset));
+                            list.Add(this.elementDecoder.DecodeTyped(ref decoder));
 
-                            if (!TryConsumeToken(text, ref offset, ','))
+                            if (!decoder.TryConsumeToken(','))
                             {
                                 break;
                             }
                         }
 
-                        ConsumeToken(text, ref offset, ']');
+                        decoder.ConsumeToken(']');
 
                         return this.listConstructor(list);
                     }
@@ -470,7 +462,7 @@ namespace Argo
             private abstract class DictionaryDecoder<T, K, V> : ValueDecoder<T>
             {
                 protected static readonly ObjectPool<Dictionary<K, V>> dictionaryPool
-                    = new ObjectPool<Dictionary<K, V>>(() => new Dictionary<K, V>(), d => d.Clear());
+                    = new ObjectPool<Dictionary<K, V>>(() => new Dictionary<K, V>(10), d => d.Clear());
             }
 
             private class DictionaryAddDecoder<T, K, V> : DictionaryDecoder<T, K, V>
@@ -483,31 +475,31 @@ namespace Argo
                 public DictionaryAddDecoder(Action<T, K, V> keyValueAdder)
                 {
                     this.keyValueAdder = keyValueAdder;
-                    this.keyDecoder = GetStringDecoder<K>();
+                    this.keyDecoder = GetKeyDecoder<K>();
                     this.valueDecoder = GetValueDecoder<V>();
                 }
 
-                public override T DecodeTyped(JsonDecoder decoder, string text, ref int offset)
+                public override T DecodeTyped(ref JsonDecoder decoder)
                 {
                     var instance = new T();
 
-                    ConsumeToken(text, ref offset, '{');
+                    decoder.ConsumeToken('{');
 
-                    while (PeekChar(text, offset) != '\0')
+                    while (decoder.PeekChar() != '\0')
                     {
-                        var key = keyDecoder.DecodeTyped(decoder, text, ref offset);
-                        ConsumeToken(text, ref offset, ':');
-                        var value = valueDecoder.DecodeTyped(decoder, text, ref offset);
+                        var key = keyDecoder.DecodeTyped(ref decoder);
+                        decoder.ConsumeToken(':');
+                        var value = valueDecoder.DecodeTyped(ref decoder);
 
                         this.keyValueAdder(instance, key, value);
 
-                        if (!TryConsumeToken(text, ref offset, ','))
+                        if (!decoder.TryConsumeToken(','))
                         {
                             break;
                         }
                     }
 
-                    ConsumeToken(text, ref offset, '}');
+                    decoder.ConsumeToken('}');
 
                     return instance;
                 }
@@ -523,32 +515,32 @@ namespace Argo
                 public DictionaryConstructorDecoder(Func<IEnumerable<KeyValuePair<K, V>>, T> instanceConstructor)
                 {
                     this.instanceConstructor = instanceConstructor;
-                    this.keyDecoder = GetStringDecoder<K>();
+                    this.keyDecoder = GetKeyDecoder<K>();
                     this.valueDecoder = GetValueDecoder<V>();
                 }
 
-                public override T DecodeTyped(JsonDecoder decoder, string text, ref int offset)
+                public override T DecodeTyped(ref JsonDecoder decoder)
                 {
                     var d = dictionaryPool.AllocateFromPool();
                     try
                     {
-                        ConsumeToken(text, ref offset, '{');
+                        decoder.ConsumeToken('{');
 
-                        while (PeekChar(text, offset) != '\0')
+                        while (decoder.PeekChar() != '\0')
                         {
-                            var key = keyDecoder.DecodeTyped(decoder, text, ref offset);
-                            ConsumeToken(text, ref offset, ':');
-                            var value = valueDecoder.DecodeTyped(decoder, text, ref offset);
+                            var key = keyDecoder.DecodeTyped(ref decoder);
+                            decoder.ConsumeToken(':');
+                            var value = valueDecoder.DecodeTyped(ref decoder);
 
                             d.Add(key, value);
 
-                            if (!TryConsumeToken(text, ref offset, ','))
+                            if (!decoder.TryConsumeToken(','))
                             {
                                 break;
                             }
                         }
 
-                        ConsumeToken(text, ref offset, '}');
+                        decoder.ConsumeToken('}');
 
                         return this.instanceConstructor(d);
                     }
@@ -568,47 +560,47 @@ namespace Argo
                 public ObjectMemberDecoder(IEnumerable<EncodingMember> members)
                 {
                     this.keyDecoder = GetValueDecoder<string>();
-                    this.memberDecoders = members.ToDictionary(m => m.Name, m => CreateMemberDecocer(m));
+                    this.memberDecoders = members.ToDictionary(m => m.Name, m => CreateMemberDecoder(m));
                 }
 
-                private static MemberDecoder<T> CreateMemberDecocer(EncodingMember member)
+                private static MemberDecoder<T> CreateMemberDecoder(EncodingMember member)
                 {
                     return (MemberDecoder<T>)Activator.CreateInstance(typeof(MemberDecoder<,>).MakeGenericType(typeof(T), member.Type), new object[] { member });
                 }
 
-                public override T DecodeTyped(JsonDecoder decoder, string text, ref int offset)
+                public override T DecodeTyped(ref JsonDecoder decoder)
                 {
-                    if (TryConsumeToken(text, ref offset, "null"))
+                    if (decoder.TryConsumeToken("null"))
                     {
                         return default(T);
                     }
 
                     var instance = new T();
 
-                    ConsumeToken(text, ref offset, '{');
+                    decoder.ConsumeToken('{');
 
-                    while (PeekChar(text, offset) != '\0')
+                    while (decoder.PeekChar() != '\0')
                     {
-                        var key = this.keyDecoder.DecodeTyped(decoder, text, ref offset);
-                        ConsumeToken(text, ref offset, ':');
+                        var key = this.keyDecoder.DecodeTyped(ref decoder);
+                        decoder.ConsumeToken(':');
 
                         MemberDecoder<T> memberDecoder;
                         if (this.memberDecoders.TryGetValue(key, out memberDecoder))
                         {
-                            memberDecoder.DecodeInto(decoder, text, ref offset, ref instance);
+                            memberDecoder.DecodeInto(ref decoder, ref instance);
                         }
                         else
                         {
                             throw new InvalidOperationException(string.Format("The type '{0}' does not have a member named '{1}'.", typeof(T), key));
                         }
 
-                        if (!TryConsumeToken(text, ref offset, ','))
+                        if (!decoder.TryConsumeToken(','))
                         {
                             break;
                         }
                     }
 
-                    ConsumeToken(text, ref offset, '}');
+                    decoder.ConsumeToken('}');
 
                     return instance;
                 }
@@ -616,7 +608,7 @@ namespace Argo
 
             private abstract class MemberDecoder<TInstance>
             {
-                public abstract void DecodeInto(JsonDecoder decoder, string text, ref int offset, ref TInstance instance);
+                public abstract void DecodeInto(ref JsonDecoder decoder, ref TInstance instance);
             }
 
             private class MemberDecoder<TInstance, TMember> : MemberDecoder<TInstance>
@@ -630,14 +622,14 @@ namespace Argo
                     this.valueDecoder = GetValueDecoder<TMember>();
                 }
 
-                public override void DecodeInto(JsonDecoder decoder, string text, ref int offset, ref TInstance instance)
+                public override void DecodeInto(ref JsonDecoder decoder, ref TInstance instance)
                 {
-                    var value = this.valueDecoder.DecodeTyped(decoder, text, ref offset);
+                    var value = this.valueDecoder.DecodeTyped(ref decoder);
                     this.member.SetTypedValue(ref instance, value);
                 }
             }
 
-            private delegate T DecoderFunc<T>(JsonDecoder decoder, string text, ref int offset);
+            private delegate T DecoderFunc<T>(ref JsonDecoder decoder);
 
             private class FuncDecoder<T> : ValueDecoder<T>
             {
@@ -648,9 +640,9 @@ namespace Argo
                     this.func = func;
                 }
 
-                public override T DecodeTyped(JsonDecoder decoder, string text, ref int offset)
+                public override T DecodeTyped(ref JsonDecoder decoder)
                 {
-                    return this.func(decoder, text, ref offset);
+                    return this.func(ref decoder);
                 }
             }
 
@@ -665,12 +657,12 @@ namespace Argo
                     this.decimalConverter = decimalConverter;
                 }
 
-                public override T DecodeTyped(JsonDecoder decoder, string text, ref int offset)
+                public override T DecodeTyped(ref JsonDecoder decoder)
                 {
                     double dbl;
                     decimal dec;
                     bool hasFraction;
-                    var kind = decoder.DecodeNumber(text, ref offset, typeof(T), out dbl, out dec, out hasFraction);
+                    var kind = decoder.DecodeNumber(typeof(T), out dbl, out dec, out hasFraction);
                     if (kind == NumberKind.Double)
                     {
                         return this.doubleConverter(dbl);
@@ -685,55 +677,61 @@ namespace Argo
             private class StringDecoder<T> : ValueDecoder<T>
             {
                 private readonly Func<string, T> parser;
+                private readonly bool intern;
 
                 private static readonly ObjectPool<StringBuilder> builderPool = new ObjectPool<StringBuilder>(() => new StringBuilder(), b => b.Clear());
 
-                public StringDecoder(Func<string, T> parser)
+                public StringDecoder(Func<string, T> parser, bool intern)
                 {
                     this.parser = parser;
+                    this.intern = intern;
                 }
 
-                public override T DecodeTyped(JsonDecoder decoder, string text, ref int offset)
+                public override T DecodeTyped(ref JsonDecoder decoder)
                 {
                     StringBuilder builder = null;
 
                     try
                     {
-                        ConsumeToken(text, ref offset, '"');
+                        decoder.ConsumeToken('"');
 
-                        var start = offset;
+                        var start = decoder.offset;
 
                         char ch;
-                        while (offset < text.Length && (ch = PeekChar(text, offset)) != '"')
+                        while ((ch = decoder.PeekChar()) != '\0' && ch != '"')
                         {
                             if (ch == '\\')
                             {
                                 if (builder == null)
                                 {
                                     builder = builderPool.AllocateFromPool();
-                                    builder.Append(text, start, offset - start);
+                                    builder.Append(decoder.text, start, decoder.offset - start);
                                 }
 
-                                builder.Append(DecodeEscapedChar(text, ref offset));
+                                builder.Append(DecodeEscapedChar(ref decoder));
                             }
                             else if (builder != null)
                             {
                                 builder.Append(ch);
-                                offset++;
+                                decoder.offset++;
                             }
                             else
                             {
-                                offset++;
+                                decoder.offset++;
                             }
                         }
 
-                        var end = offset;
+                        var end = decoder.offset;
 
-                        ConsumeToken(text, ref offset, '"');
+                        decoder.ConsumeToken('"');
 
-                        string value = builder != null
-                            ? decoder.InternString(builder)
-                            : decoder.InternString(text, start, end - start);
+                        string value = intern
+                                ? (builder != null)
+                                    ? decoder.InternString(builder)
+                                    : decoder.InternString(start, end - start)
+                                : (builder != null)
+                                    ? builder.ToString()
+                                    : decoder.text.Substring(start, end - start);
 
                         return this.parser(value);
                     }
@@ -746,64 +744,59 @@ namespace Argo
                     }
                 }
 
-                private static char DecodeEscapedChar(string text, ref int offset)
+                private static char DecodeEscapedChar(ref JsonDecoder decoder)
                 {
-                    offset++; // for first \
+                    decoder.offset++; // for first \
 
-                    if (offset >= text.Length)
-                    {
-                        return '\0';
-                    }
-
-                    var ch = PeekChar(text, offset);
+                    var ch = decoder.PeekChar();
                     switch (ch)
                     {
                         case '"':
-                            offset++;
+                            decoder.offset++;
                             return '"';
                         case '\\':
-                            offset++;
+                            decoder.offset++;
                             return '\\';
                         case '/':
-                            offset++;
+                            decoder.offset++;
                             return '/';
                         case 'b':
-                            offset++;
+                            decoder.offset++;
                             return '\b';
                         case 'f':
-                            offset++;
+                            decoder.offset++;
                             return '\f';
                         case 'r':
-                            offset++;
+                            decoder.offset++;
                             return '\r';
                         case 'n':
-                            offset++;
+                            decoder.offset++;
                             return '\n';
                         case 't':
-                            offset++;
+                            decoder.offset++;
                             return '\t';
                         case 'u':
-                            offset++;
-                            return (char)ParseHexNumber(text, ref offset, 4);
+                            decoder.offset++;
+                            return (char)ParseHexNumber(ref decoder, 4);
                         default:
                             // bad escaped: throw exception here?
-                            offset++;
+                            decoder.offset++;
                             return ch;
                     }
                 }
 
-                private static uint ParseHexNumber(string text, ref int offset, int maxLength)
+                private static uint ParseHexNumber(ref JsonDecoder decoder, int maxLength)
                 {
-                    var start = offset;
+                    var start = decoder.offset;
                     uint number = 0;
 
-                    while (offset < text.Length && offset - start < maxLength)
+                    char ch;
+                    while ((ch = decoder.PeekChar()) != '\0' && decoder.offset - start < maxLength)
                     {
-                        char ch = text[offset];
                         uint digit;
                         if (TryGetHexDigitValue(ch, out digit))
                         {
-                            offset++;
+                            decoder.offset++;
                             number = (number << 4) + digit;
                         }
                         else
@@ -850,15 +843,15 @@ namespace Argo
                     this.valueDecoder = valueDecoder;
                 }
 
-                public override T? DecodeTyped(JsonDecoder decoder, string text, ref int offset)
+                public override T? DecodeTyped(ref JsonDecoder decoder)
                 {
-                    if (TryConsumeToken(text, ref offset, "null"))
+                    if (decoder.TryConsumeToken("null"))
                     {
                         return null;
                     }
                     else
                     {
-                        return this.valueDecoder.DecodeTyped(decoder, text, ref offset);
+                        return this.valueDecoder.DecodeTyped(ref decoder);
                     }
                 }
             }
@@ -873,15 +866,15 @@ namespace Argo
                     this.valueDecoder = valueDecoder;
                 }
 
-                public override T DecodeTyped(JsonDecoder decoder, string text, ref int offset)
+                public override T DecodeTyped(ref JsonDecoder decoder)
                 {
-                    if (TryConsumeToken(text, ref offset, "null"))
+                    if (decoder.TryConsumeToken("null"))
                     {
                         return null;
                     }
                     else
                     {
-                        return this.valueDecoder.DecodeTyped(decoder, text, ref offset);
+                        return this.valueDecoder.DecodeTyped(ref decoder);
                     }
                 }
             }
@@ -1035,7 +1028,7 @@ namespace Argo
                 }
 
                 // can be parsed from string?
-                var stringDecoder = CreateTypedStringDecoder(type);
+                var stringDecoder = CreateTypedKeyDecoder(type);
                 if (stringDecoder != null)
                 {
                     return stringDecoder;
@@ -1097,30 +1090,30 @@ namespace Argo
                 return true;
             }
 
-            private static readonly ConcurrentDictionary<Type, ValueDecoder> stringDecoders
+            private static readonly ConcurrentDictionary<Type, ValueDecoder> keyDecoders
                 = new ConcurrentDictionary<Type, ValueDecoder>();
 
-            private static ValueDecoder<T> GetStringDecoder<T>()
+            private static ValueDecoder<T> GetKeyDecoder<T>()
             {
-                return (ValueDecoder<T>)GetStringDecoder(typeof(T));
+                return (ValueDecoder<T>)GetKeyDecoder(typeof(T));
             }
 
-            private static ValueDecoder GetStringDecoder(Type type)
+            private static ValueDecoder GetKeyDecoder(Type type)
             {
                 ValueDecoder stringDecoder;
 
-                if (!stringDecoders.TryGetValue(type, out stringDecoder))
+                if (!keyDecoders.TryGetValue(type, out stringDecoder))
                 {
-                    stringDecoder = stringDecoders.GetOrAdd(type, CreateStringDecoder(type));
+                    stringDecoder = keyDecoders.GetOrAdd(type, CreateKeyDecoder(type));
                 }
 
                 return stringDecoder;
             }
 
-            private static ValueDecoder CreateStringDecoder(Type type)
+            private static ValueDecoder CreateKeyDecoder(Type type)
             {
                 var nnType = TypeHelper.GetNonNullableType(type);
-                ValueDecoder decoder = CreateTypedStringDecoder(nnType);
+                ValueDecoder decoder = CreateTypedKeyDecoder(nnType);
 
                 if (decoder.Type != nnType)
                 {
@@ -1139,11 +1132,11 @@ namespace Argo
                 return decoder;
             }
 
-            private static ValueDecoder CreateTypedStringDecoder(Type type)
+            private static ValueDecoder CreateTypedKeyDecoder(Type type)
             {
                 if (type == typeof(string))
                 {
-                    return GetValueDecoder<string>();
+                    return new StringDecoder<string>(s => s, true);
                 }
 
                 // can be parsed from string?
@@ -1154,7 +1147,7 @@ namespace Argo
                 {
                     var dType = typeof(Func<,>).MakeGenericType(typeof(string), type);
                     var parser = Delegate.CreateDelegate(dType, parseMethod, throwOnBindFailure: true);
-                    return (ValueDecoder)Activator.CreateInstance(typeof(StringDecoder<>).MakeGenericType(type), new object[] { parser });
+                    return (ValueDecoder)Activator.CreateInstance(typeof(StringDecoder<>).MakeGenericType(type), new object[] { parser, true });
                 }
 
                 return null;
@@ -1174,18 +1167,18 @@ namespace Argo
                 InitStructDecoder(new NumberDecoder<double>(d => d, d => (double)d));
                 InitStructDecoder(new NumberDecoder<decimal>(d => (decimal)d, d => d));
 
-                InitClassDecoder(new StringDecoder<string>(s => s));
+                InitClassDecoder(new StringDecoder<string>(s => s, false));
 
-                InitClassDecoder(new FuncDecoder<object>((JsonDecoder d, string text, ref int offset) =>
-                    d.DecodeObject(text, ref offset)));
+                InitClassDecoder(new FuncDecoder<object>((ref JsonDecoder d) =>
+                    DecodeObject(ref d)));
 
-                InitStructDecoder(new FuncDecoder<bool>((JsonDecoder d, string text, ref int offset) =>
+                InitStructDecoder(new FuncDecoder<bool>((ref JsonDecoder d) =>
                 {
-                    if (TryConsumeToken(text, ref offset, "true"))
+                    if (d.TryConsumeToken("true"))
                     {
                         return true;
                     }
-                    else if (TryConsumeToken(text, ref offset, "false"))
+                    else if (d.TryConsumeToken("false"))
                     {
                         return false;
                     }
