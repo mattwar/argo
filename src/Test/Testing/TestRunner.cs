@@ -21,33 +21,35 @@ namespace Test
         {
             var testTypes = GetTestTypes();
 
-            if (commandLineArgs.Length == 0)
-            {
-                RunAllTests(testTypes);
-            }
-
-            var testTypeMap = testTypes.ToDictionary(t => t.Name, t => t);
-            var testMethodLookup = testTypes.SelectMany(t => GetTestMethods(t)).ToLookup(m => m.Name);
-
             var testNames = new List<string>();
             this.ParseCommandLineArgs(commandLineArgs, out testNames, out this.versbose);
 
-            // arg can be test method name or test type name
-            foreach (var name in testNames)
+            if (testNames.Count == 0)
             {
-                var testName = name.EndsWith("Tests") ? name : name + "Tests";
-                Type testType;
-                if (testTypeMap.TryGetValue(testName, out testType))
-                {
-                    RunAllTests(testType);
-                    continue;
-                }
+                RunAllTests(testTypes);
+            }
+            else
+            {
+                var testTypeMap = testTypes.ToDictionary(t => t.Name, t => t);
+                var testMethodLookup = testTypes.SelectMany(t => GetTestMethods(t)).ToLookup(m => m.Name);
 
-                var methodName = name.StartsWith("Test") ? name : "Test" + name;
-                var methodsByTestType = testMethodLookup[methodName].GroupBy(m => m.DeclaringType);
-                foreach (var methods in methodsByTestType)
+                // name can be a test type name or a test method name
+                foreach (var name in testNames)
                 {
-                    RunAllTests(methods.Key, methods);
+                    var testName = name.EndsWith("Tests") ? name : name + "Tests";
+                    Type testType;
+                    if (testTypeMap.TryGetValue(testName, out testType))
+                    {
+                        RunAllTests(testType);
+                        continue;
+                    }
+
+                    var methodName = name.StartsWith("Test") ? name : "Test" + name;
+                    var methodsByTestType = testMethodLookup[methodName].GroupBy(m => m.DeclaringType);
+                    foreach (var methods in methodsByTestType)
+                    {
+                        RunAllTests(methods.Key, methods);
+                    }
                 }
             }
         }
@@ -74,9 +76,20 @@ namespace Test
                     {
                         case "v":
                         case "verbose":
-                            if (parts.Length > 1 && parts[1] == "-")
+                            if (parts.Length > 1)
                             {
-                                verbose = false;
+                                if (parts[1] == "-" || parts[1] == "false")
+                                {
+                                    verbose = false;
+                                }
+                                else if (parts[1] == "+" || parts[1] == "true")
+                                {
+                                    verbose = true;
+                                }
+                            }
+                            else
+                            {
+                                verbose = true;
                             }
                             break;
                     }

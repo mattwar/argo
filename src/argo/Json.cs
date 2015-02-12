@@ -7,27 +7,22 @@ namespace Argo
     {
         public static string Encode<T>(T value)
         {
-            var writer = new StringWriter();
-            Encode(writer, value);
-            return writer.ToString();
+            return JsonEncoder.Encode(value);
         }
 
         public static string Encode(object value, Type type)
         {
-            var writer = new StringWriter();
-            Encode(writer, value, type);
-            return writer.ToString();
+            return JsonEncoder.Encode(value, type);
         }
 
         public static void Encode<T>(TextWriter writer, T value)
         {
-            JsonEncoder.Instance.Encode(writer, value, typeof(T));
+            JsonEncoder.Encode(writer, value);
         }
 
         public static void Encode(TextWriter writer, object value, Type type)
         {
-            type = type ?? value?.GetType() ?? typeof(object);
-            JsonEncoder.Instance.Encode(writer, value, type);
+            JsonEncoder.Encode(writer, value, type);
         }
 
         public static T Decode<T>(string value)

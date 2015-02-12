@@ -16,10 +16,11 @@ namespace Argo
     {
         private class JsonEncoder
         {
-            public static readonly JsonEncoder Instance = new JsonEncoder();
+            private readonly TextWriter writer;
 
-            private JsonEncoder()
+            private JsonEncoder(TextWriter writer)
             {
+                this.writer = writer;
             }
 
             static JsonEncoder()
@@ -27,8 +28,32 @@ namespace Argo
                 InitEncoders();
             }
 
-            public void Encode(TextWriter writer, object value, Type type)
+            public static string Encode<T>(T value)
             {
+                var writer = new StringWriter();
+                Encode(writer, value);
+                return writer.ToString();
+            }
+
+            public static string Encode(object value, Type type)
+            {
+                var writer = new StringWriter();
+                Encode(writer, value, type);
+                return writer.ToString();
+            }
+
+            public static void Encode<T>(TextWriter writer, T value)
+            {
+                var jsonEncoder = new JsonEncoder(writer);
+                var encoder = GetEncoder<T>();
+                encoder.EncodeTyped(ref jsonEncoder, value);
+            }
+
+            public static void Encode(TextWriter writer, object value, Type type)
+            {
+                var jsonEncoder = new JsonEncoder(writer);
+                type = type ?? value?.GetType() ?? typeof(object);
+
                 if (value == null)
                 {
                     writer.Write("null");
@@ -36,35 +61,39 @@ namespace Argo
                 else
                 {
                     var encoder = GetEncoder(type);
-                    encoder.Encode(this, writer, value);
+                    encoder.Encode(ref jsonEncoder, value);
                 }
             }
 
-            public void Encode<T>(TextWriter writer, T value)
+            private void Write(string text)
             {
-                var encoder = GetEncoder<T>();
-                encoder.EncodeTyped(this, writer, value);
+                this.writer.Write(text);
+            }
+
+            private void Write(char ch)
+            {
+                this.writer.Write(ch);
             }
 
             private readonly static char[] escapedChars =
                 new char[] { '"', '/', '\\', '\b', '\f', '\n', '\r', '\t' };
 
-            private void EncodeString<T>(TextWriter writer, T value)
+            private void EncodeString<T>(T value)
             {
                 var text = value.ToString();
 
-                writer.Write('"');
+                Write('"');
 
                 if (NeedsEscaping(text))
                 {
-                    EncodeEscapes(writer, text);
+                    EncodeEscapes(text);
                 }
                 else
                 {
-                    writer.Write(text);
+                    Write(text);
                 }
 
-                writer.Write('"');
+                Write('"');
             }
 
             private static bool NeedsEscaping(string text)
@@ -84,32 +113,32 @@ namespace Argo
                 return false;
             }
 
-            private static void EncodeEscapes(TextWriter writer, string text)
+            private void EncodeEscapes(string text)
             {
                 foreach (var ch in text)
                 {
                     switch (ch)
                     {
                         case '"':
-                            writer.Write(@"\""");
+                            Write(@"\""");
                             break;
                         case '\\':
-                            writer.Write(@"\\");
+                            Write(@"\\");
                             break;
                         case '\b':
-                            writer.Write(@"\b");
+                            Write(@"\b");
                             break;
                         case '\f':
-                            writer.Write(@"\f");
+                            Write(@"\f");
                             break;
                         case '\r':
-                            writer.Write(@"\r");
+                            Write(@"\r");
                             break;
                         case '\n':
-                            writer.Write(@"\n");
+                            Write(@"\n");
                             break;
                         case '\t':
-                            writer.Write(@"\t");
+                            Write(@"\t");
                             break;
                         default:
                             if (char.IsControl(ch))
@@ -118,7 +147,7 @@ namespace Argo
                             }
                             else
                             {
-                                writer.Write(ch);
+                                Write(ch);
                             }
                             break;
                     }
@@ -127,16 +156,16 @@ namespace Argo
 
             private abstract class ValueEncoder
             {
-                public abstract void Encode(JsonEncoder encoder, TextWriter writer, object value);
+                public abstract void Encode(ref JsonEncoder encoder, object value);
             }
 
             private abstract class ValueEncoder<T> : ValueEncoder
             {
-                public abstract void EncodeTyped(JsonEncoder encoder, TextWriter writer, T value);
+                public abstract void EncodeTyped(ref JsonEncoder encoder, T value);
 
-                public override void Encode(JsonEncoder encoder, TextWriter writer, object value)
+                public override void Encode(ref JsonEncoder encoder, object value)
                 {
-                    this.EncodeTyped(encoder, writer, (T)value);
+                    this.EncodeTyped(ref encoder, (T)value);
                 }
             }
 
@@ -150,28 +179,28 @@ namespace Argo
                     this.valueEncoder = (ValueEncoder<V>)GetEncoder(typeof(V));
                 }
 
-                public override void EncodeTyped(JsonEncoder encoder, TextWriter writer, T pairs)
+                public override void EncodeTyped(ref JsonEncoder encoder, T pairs)
                 {
-                    writer.Write("{");
+                    encoder.Write("{");
 
                     bool first = true;
                     foreach (var kvp in pairs)
                     {
                         if (!first)
                         {
-                            writer.Write(", ");
+                            encoder.Write(", ");
                         }
                         else
                         {
                             first = false;
                         }
 
-                        encoder.EncodeString(writer, kvp.Key);
-                        writer.Write(": ");
-                        this.valueEncoder.EncodeTyped(encoder, writer, kvp.Value);
+                        encoder.EncodeString(kvp.Key);
+                        encoder.Write(": ");
+                        this.valueEncoder.EncodeTyped(ref encoder, kvp.Value);
                     }
 
-                    writer.Write("}");
+                    encoder.Write("}");
                     return;
                 }
             }
@@ -186,50 +215,50 @@ namespace Argo
                     this.elementEncoder = GetEncoder<TElem>();
                 }
 
-                public override void EncodeTyped(JsonEncoder encoder, TextWriter writer, T sequence)
+                public override void EncodeTyped(ref JsonEncoder encoder, T sequence)
                 {
-                    writer.Write("[");
+                    encoder.Write("[");
                     bool first = true;
 
                     foreach (var item in sequence)
                     {
                         if (!first)
                         {
-                            writer.Write(", ");
+                            encoder.Write(", ");
                         }
                         else
                         {
                             first = false;
                         }
 
-                        this.elementEncoder.EncodeTyped(encoder, writer, item);
+                        this.elementEncoder.EncodeTyped(ref encoder, item);
                     }
 
-                    writer.Write("]");
+                    encoder.Write("]");
                 }
             }
 
             private class StringEncoder<T> : ValueEncoder<T>
             {
-                public override void EncodeTyped(JsonEncoder encoder, TextWriter writer, T value)
+                public override void EncodeTyped(ref JsonEncoder encoder, T value)
                 {
-                    encoder.EncodeString(writer, value);
+                    encoder.EncodeString(value);
                 }
             }
 
             private class ObjectEncoder : ValueEncoder<object>
             {
-                public override void EncodeTyped(JsonEncoder encoder, TextWriter writer, object value)
+                public override void EncodeTyped(ref JsonEncoder encoder, object value)
                 {
                     var type = value.GetType();
                     if (type == typeof(object))
                     {
-                        writer.Write("{}");
+                        encoder.Write("{}");
                     }
                     else
                     {
                         var typeEncoder = GetEncoder(type);
-                        typeEncoder.Encode(encoder, writer, value);
+                        typeEncoder.Encode(ref encoder, value);
                     }
                 }
             }
@@ -245,9 +274,9 @@ namespace Argo
                         .ToArray();
                 }
 
-                public override void EncodeTyped(JsonEncoder encoder, TextWriter writer, T value)
+                public override void EncodeTyped(ref JsonEncoder encoder, T value)
                 {
-                    writer.Write("{");
+                    encoder.Write("{");
 
                     bool first = true;
 
@@ -255,17 +284,17 @@ namespace Argo
                     {
                         if (!first)
                         {
-                            writer.Write(", ");
+                            encoder.Write(", ");
                         }
                         else
                         {
                             first = false;
                         }
 
-                        memberEncoder.EncodeTyped(encoder, writer, value);
+                        memberEncoder.EncodeTyped(ref encoder, value);
                     }
 
-                    writer.Write("}");
+                    encoder.Write("}");
                 }
             }
 
@@ -280,11 +309,11 @@ namespace Argo
                     this.valueEncoder = GetEncoder<TMember>();
                 }
 
-                public override void EncodeTyped(JsonEncoder encoder, TextWriter writer, TInstance instance)
+                public override void EncodeTyped(ref JsonEncoder encoder, TInstance instance)
                 {
-                    encoder.EncodeString<string>(writer, member.Name);
-                    writer.Write(": ");
-                    this.valueEncoder.EncodeTyped(encoder, writer, this.member.GetTypedValue(ref instance));
+                    encoder.EncodeString<string>(member.Name);
+                    encoder.Write(": ");
+                    this.valueEncoder.EncodeTyped(ref encoder, this.member.GetTypedValue(ref instance));
                 }
             }
 
@@ -297,9 +326,9 @@ namespace Argo
                     this.action = action;
                 }
 
-                public override void EncodeTyped(JsonEncoder encoder, TextWriter writer, T value)
+                public override void EncodeTyped(ref JsonEncoder encoder, T value)
                 {
-                    this.action(writer, value);
+                    this.action(encoder.writer, value);
                 }
             }
 
@@ -313,15 +342,15 @@ namespace Argo
                     this.valueEncoder = valueEncoder;
                 }
 
-                public override void EncodeTyped(JsonEncoder encoder, TextWriter writer, T? value)
+                public override void EncodeTyped(ref JsonEncoder encoder, T? value)
                 {
                     if (value == null)
                     {
-                        writer.Write("null");
+                        encoder.Write("null");
                     }
                     else
                     {
-                        this.valueEncoder.EncodeTyped(encoder, writer, value.GetValueOrDefault());
+                        this.valueEncoder.EncodeTyped(ref encoder, value.GetValueOrDefault());
                     }
                 }
             }
@@ -336,15 +365,15 @@ namespace Argo
                     this.valueEncoder = valueEncoder;
                 }
 
-                public override void EncodeTyped(JsonEncoder encoder, TextWriter writer, T value)
+                public override void EncodeTyped(ref JsonEncoder encoder, T value)
                 {
                     if (value == null)
                     {
-                        writer.Write("null");
+                        encoder.Write("null");
                     }
                     else
                     {
-                        this.valueEncoder.EncodeTyped(encoder, writer, value);
+                        this.valueEncoder.EncodeTyped(ref encoder, value);
                     }
                 }
             }

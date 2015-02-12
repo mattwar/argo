@@ -7,7 +7,7 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Argo", "argo\Argo.csproj", 
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Test", "Test\Test.csproj", "{7649B6A1-7F54-44B2-B720-509B58AF4A19}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "PerfTests", "Perf\PerfTests.csproj", "{5157AE57-18D4-4D8A-8F1F-F92DC0016771}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "PerfTests", "PerfTests\PerfTests.csproj", "{5157AE57-18D4-4D8A-8F1F-F92DC0016771}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "UnitTests", "JsonTests\UnitTests.csproj", "{E2A00BE3-085B-42E1-BC2F-E91A43ED162C}"
 EndProject

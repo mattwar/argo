@@ -20,7 +20,7 @@ namespace Argo
             private int offset;
             private StringTable strings;
 
-            public JsonDecoder(string text)
+            private JsonDecoder(string text)
             {
                 this.text = text;
                 this.offset = 0;

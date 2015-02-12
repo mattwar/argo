@@ -51,6 +51,46 @@ namespace PerfTests
             Console.WriteLine("Newton: {0}", newtonTime * 100000);
         }
 
+        public void TestEncoding()
+        {
+            var iterations = 10000;
+
+            TestEncoding("Int", iterations, 123);
+            TestEncoding("String", iterations, "abcefg");
+            TestEncoding("Escaped String", iterations, @"abc\r\n\u1234efg");
+            TestEncoding("Int Array", iterations, new int[] { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10 });
+            TestEncoding("Int List", iterations, new List<int> { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10 });
+            TestEncoding("String Array", iterations, new string[] { "A", "B", "C", "D" });
+            TestEncoding("Dictionary", iterations, new Dictionary<string, int> { { "A", 1 }, { "B", 2 }, { "C", 3 } });
+            TestEncoding("Class", iterations, new TestClass<string, int> { X = "A", Y = 1 });
+            TestEncoding("Struct", iterations, new TestStruct<string, int> { X = "A", Y = 1 });
+        }
+
+        private void TestEncoding<T>(string title, int iterations, T value)
+        {
+            var argoTime = RunTimedTest(iterations, n =>
+            {
+                var json = Json.Encode(value);
+            });
+
+            var aspTime = RunTimedTest(iterations, n =>
+            {
+                var serializer = new System.Web.Script.Serialization.JavaScriptSerializer();
+                var json = serializer.Serialize(value);
+            });
+
+            var newtonTime = RunTimedTest(iterations, n =>
+            {
+                var json = Newtonsoft.Json.JsonConvert.SerializeObject(value);
+            });
+
+            Console.WriteLine();
+            Console.WriteLine(title);
+            Console.WriteLine("Argo:   {0}", argoTime * 100000);
+            Console.WriteLine("ASP:    {0}", aspTime * 100000);
+            Console.WriteLine("Newton: {0}", newtonTime * 100000);
+        }
+
         private double RunTimedTest(int iterations, Action<int> action)
         {
             action(0); // throw out the first one  (makes sure code is loaded)
