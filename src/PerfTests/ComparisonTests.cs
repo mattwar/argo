@@ -8,6 +8,7 @@ namespace PerfTests
 {
     using Argo;
     using Test;
+    using UnitTests;
 
     public class ComparisonTests
     {

@@ -1,8 +1,5 @@
 ﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
+using System.Reflection;
 
 namespace UnitTests
 {
@@ -12,7 +9,7 @@ namespace UnitTests
     {
         static void Main(string[] args)
         {
-            new TestRunner().RunTests(args);
+            new TestRunner().RunTests(Assembly.GetEntryAssembly(), args);
         }
     }
 }

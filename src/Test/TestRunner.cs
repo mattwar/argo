@@ -14,12 +14,15 @@ namespace Test
         }
 
         /// <summary>
-        /// Runs tests found in the executing assembly.
+        /// Runs test methods on test classes found in the test assembly.
+        /// Test classes have names ending in "Tests", are public with a public no-arg constructor.
+        /// Test methods have names starting with "Test", are public, void returning and no parameters.
         /// </summary>
+        /// <param name="testAssembly">The assembly containing the test classes.</param>
         /// <param name="commandLineArgs">One or more test type or test method names.</param>
-        public void RunTests(params string[] commandLineArgs)
+        public void RunTests(Assembly testAssembly, string[] commandLineArgs)
         {
-            var testTypes = GetTestTypes();
+            var testTypes = GetTestTypes(testAssembly);
 
             var testNames = new List<string>();
             this.ParseCommandLineArgs(commandLineArgs, out testNames, out this.versbose);
@@ -101,34 +104,11 @@ namespace Test
             }
         }
 
-        private static Type[] GetTestTypes()
+        private static Type[] GetTestTypes(Assembly testAssembly)
         {
-            return GetTestAssemblies().SelectMany(a => a.GetTypes()
-                   .Where(t => t.Name.EndsWith("Tests") && t.IsPublic && t.IsClass && !t.IsAbstract))
+            return testAssembly.GetTypes()
+                   .Where(t => t.Name.EndsWith("Tests") && t.IsPublic && t.IsClass && !t.IsAbstract)
                    .ToArray();
-        }
-
-        private static List<Assembly> GetTestAssemblies()
-        {
-            var assemblies = new List<Assembly>();
-            GatherTestAssemblies(Assembly.GetEntryAssembly(), assemblies);
-            return assemblies;
-        }
-
-        private static void GatherTestAssemblies(Assembly assembly, List<Assembly> assemblies)
-        {
-            if (!assemblies.Contains(assembly))
-            {
-                assemblies.Add(assembly);
-
-                foreach (var aname in assembly.GetReferencedAssemblies())
-                {
-                    if (aname.FullName.Contains("Test"))
-                    {
-                        GatherTestAssemblies(Assembly.Load(aname), assemblies);
-                    }
-                }
-            }
         }
 
         private MethodInfo[] GetTestMethods(Type testType)

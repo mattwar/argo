@@ -1,8 +1,5 @@
 ﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
+using System.Reflection;
 
 namespace PerfTests
 {
@@ -12,10 +9,10 @@ namespace PerfTests
     {
         static void Main(string[] args)
         {
-#if !DEBUG
-            new TestRunner().RunTests(args);
-#else
+#if DEBUG
             Console.WriteLine("Do not run performance tests as DEBUG.");
+#else
+            new TestRunner().RunTests(Assembly.GetEntryAssembly(), args);
 #endif
         }
     }

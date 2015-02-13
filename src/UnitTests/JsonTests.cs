@@ -145,7 +145,7 @@ namespace UnitTests
         public void TestParsables()
         {
             var guid = Guid.Parse("24b56d9f-2597-447a-92d0-4f5315e5b2be");               
-            TestEncodeDecode(guid, $@"""{guid.ToString()}""");
+            TestEncodeDecode(guid, @"""" + guid.ToString() + @"""");
         }
 
         public void TestLists()
