@@ -61,6 +61,13 @@ namespace Argo
                 return valueDecoder.DecodeTyped(ref decoder);
             }
 
+            public static Dictionary<string, object> Decode(string text, IEnumerable<KeyValuePair<string, Type>> valueTypes)
+            {
+                var decoder = new JsonDecoder(text);
+                var valueDecoder = new DictionaryLookupDecoder(valueTypes);
+                return valueDecoder.DecodeTyped(ref decoder);
+            }
+
             private static object DecodeObject(ref JsonDecoder decoder)
             {
                 if (decoder.TryConsumeToken("null"))
@@ -354,7 +361,8 @@ namespace Argo
                     {
                         decoder.ConsumeToken('[');
 
-                        while (decoder.PeekChar() != '\0')
+                        char ch;
+                        while ((ch = decoder.PeekChar()) != '\0' && ch != '}')
                         {
                             list.Add(this.elementDecoder.DecodeTyped(ref decoder));
 
@@ -395,7 +403,8 @@ namespace Argo
 
                     decoder.ConsumeToken('[');
 
-                    while (decoder.PeekChar() != '\0')
+                    char ch;
+                    while ((ch = decoder.PeekChar()) != '\0' && ch != ']')
                     {
                         this.elementAdder(list, this.elementDecoder.DecodeTyped(ref decoder));
 
@@ -438,7 +447,8 @@ namespace Argo
 
                         decoder.ConsumeToken('[');
 
-                        while (decoder.PeekChar() != '\0')
+                        char ch;
+                        while ((ch = decoder.PeekChar()) != '\0' && ch != ']')
                         {
                             list.Add(this.elementDecoder.DecodeTyped(ref decoder));
 
@@ -485,7 +495,8 @@ namespace Argo
 
                     decoder.ConsumeToken('{');
 
-                    while (decoder.PeekChar() != '\0')
+                    char ch;
+                    while ((ch = decoder.PeekChar()) != '\0' && ch != '}')
                     {
                         var key = keyDecoder.DecodeTyped(ref decoder);
                         decoder.ConsumeToken(':');
@@ -526,7 +537,8 @@ namespace Argo
                     {
                         decoder.ConsumeToken('{');
 
-                        while (decoder.PeekChar() != '\0')
+                        char ch;
+                        while ((ch = decoder.PeekChar()) != '\0' && ch != '}')
                         {
                             var key = keyDecoder.DecodeTyped(ref decoder);
                             decoder.ConsumeToken(':');
@@ -548,6 +560,58 @@ namespace Argo
                     {
                         dictionaryPool.ReturnToPool(d);
                     }
+                }
+            }
+
+            private class DictionaryLookupDecoder : ValueDecoder<Dictionary<string, object>>
+            {
+                private readonly ValueDecoder<string> keyDecoder;
+                private readonly Dictionary<string, ValueDecoder> valueDecoders;
+                private readonly ValueDecoder<object> objectDecoder;
+
+                public DictionaryLookupDecoder(IEnumerable<KeyValuePair<string, Type>> valueTypes)
+                {
+                    this.keyDecoder = GetValueDecoder<string>();
+                    this.valueDecoders = valueTypes.ToDictionary(kvp => kvp.Key, kvp => GetValueDecoder(kvp.Value));
+                    this.objectDecoder = GetValueDecoder<object>();
+                }
+
+                public override Dictionary<string, object> DecodeTyped(ref JsonDecoder decoder)
+                {
+                    if (decoder.TryConsumeToken("null"))
+                    {
+                        return null;
+                    }
+
+                    var instance = new Dictionary<string, object>();
+
+                    decoder.ConsumeToken('{');
+
+                    char ch;
+                    while ((ch = decoder.PeekChar()) != '\0' && ch != '}')
+                    {
+                        var key = this.keyDecoder.DecodeTyped(ref decoder);
+                        decoder.ConsumeToken(':');
+
+                        ValueDecoder valueDecoder;
+                        if (this.valueDecoders.TryGetValue(key, out valueDecoder))
+                        {
+                            instance.Add(key, valueDecoder.Decode(ref decoder));
+                        }
+                        else
+                        {
+                            instance.Add(key, objectDecoder.Decode(ref decoder));
+                        }
+
+                        if (!decoder.TryConsumeToken(','))
+                        {
+                            break;
+                        }
+                    }
+
+                    decoder.ConsumeToken('}');
+
+                    return instance;
                 }
             }
 
@@ -579,7 +643,8 @@ namespace Argo
 
                     decoder.ConsumeToken('{');
 
-                    while (decoder.PeekChar() != '\0')
+                    char ch;
+                    while ((ch = decoder.PeekChar()) != '\0' && ch != '}')
                     {
                         var key = this.keyDecoder.DecodeTyped(ref decoder);
                         decoder.ConsumeToken(':');

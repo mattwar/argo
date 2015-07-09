@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.IO;
 
 namespace Argo
@@ -33,6 +34,11 @@ namespace Argo
         public static object Decode(string value, Type type)
         {
             return JsonDecoder.Decode(value, type);
+        }
+
+        public static Dictionary<string, object> Decode(string value, IEnumerable<KeyValuePair<string, Type>> valueTypes)
+        {
+            return JsonDecoder.Decode(value, valueTypes);
         }
     }
 }
