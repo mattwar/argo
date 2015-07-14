@@ -217,5 +217,11 @@ namespace UnitTests
         {
             return new TestClass<Tx, Ty> { X = x, Y = y };
         }
+
+        public void TestSubTypes()
+        {
+            TestDecode<BaseType>(@"{""X"": 5, ""Y"": ""Hello""}", new DerivedType1 { X = 5, Y = "Hello" });
+            TestDecode<BaseType>(@"{""X"": 5, ""Z"": 4.9}", new DerivedType2 { X = 5, Z = 4.9f });
+        }
     }
 }

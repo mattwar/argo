@@ -68,38 +68,40 @@ namespace Argo
                 return valueDecoder.DecodeTyped(ref decoder);
             }
 
-            private static object DecodeObject(ref JsonDecoder decoder)
+            private object DecodeObject()
             {
-                if (decoder.TryConsumeToken("null"))
+                this.SkipWhitespace();
+
+                if (this.TryConsumeToken("null"))
                 {
                     return null;
                 }
-                else if (decoder.TryConsumeToken("true"))
+                else if (this.TryConsumeToken("true"))
                 {
                     return true;
                 }
-                else if (decoder.TryConsumeToken("false"))
+                else if (this.TryConsumeToken("false"))
                 {
                     return false;
                 }
-                else if (decoder.IsToken('"'))
+                else if (this.IsToken('"'))
                 {
-                    return GetValueDecoder<string>().DecodeTyped(ref decoder);
+                    return GetValueDecoder<string>().DecodeTyped(ref this);
                 }
-                else if (decoder.IsToken('['))
+                else if (this.IsToken('['))
                 {
-                    return GetValueDecoder<List<object>>().DecodeTyped(ref decoder);
+                    return GetValueDecoder<List<object>>().DecodeTyped(ref this);
                 }
-                else if (decoder.IsToken('{'))
+                else if (this.IsToken('{'))
                 {
-                    return GetValueDecoder<Dictionary<string, object>>().DecodeTyped(ref decoder);
+                    return GetValueDecoder<Dictionary<string, object>>().DecodeTyped(ref this);
                 }
                 else
                 {
                     double dbl;
                     decimal dec;
                     bool hasFraction;
-                    var kind = decoder.DecodeNumber(typeof(object), out dbl, out dec, out hasFraction);
+                    var kind = this.DecodeNumber(typeof(object), out dbl, out dec, out hasFraction);
                     if (kind == NumberKind.Double)
                     {
                         return dbl;
@@ -222,12 +224,199 @@ namespace Argo
                 throw new InvalidOperationException("The value is not a legal number");
             }
 
+            private void SkipObject()
+            {
+                SkipWhitespace();
+
+                if (TryConsumeToken("null")
+                    || TryConsumeToken("true")
+                    || TryConsumeToken("false"))
+                {
+                    return;
+                }
+                else if (IsToken('"'))
+                {
+                    SkipString();
+                }
+                else if (IsToken('['))
+                {
+                    SkipList();
+                }
+                else if (IsToken('{'))
+                {
+                    SkipDictionary();
+                }
+                else
+                {
+                    SkipNumber();
+                }
+            }
+
+            private void SkipString()
+            {
+                ConsumeToken('"');
+
+                char ch;
+                while ((ch = PeekChar()) != '\0' && ch != '"')
+                {
+                    if (ch == '\\')
+                    {
+                        SkipEscapedChar();
+                    }
+                    else
+                    {
+                        offset++;
+                    }
+                }
+
+                ConsumeToken('"');
+            }
+
+            private void SkipEscapedChar()
+            {
+                offset++; // for first \
+
+                var ch = PeekChar();
+                switch (ch)
+                {
+                    case '"':
+                    case '\\':
+                    case '/':
+                    case 'b':
+                    case 'f':
+                    case 'r':
+                    case 'n':
+                    case 't':
+                    default:
+                        offset++;
+                        break;
+                    case 'u':
+                        offset++;
+                        SkipHexNumber(4);
+                        break;
+                }
+            }
+
+            private void SkipHexNumber(int maxLength)
+            {
+                var start = offset;
+
+                char ch;
+                while ((ch = PeekChar()) != '\0' && offset - start < maxLength)
+                {
+                    if (IsHexDigit(ch))
+                    {
+                        offset++;
+                    }
+                    else
+                    {
+                        break;
+                    }
+                }
+            }
+
+            private static bool IsHexDigit(char ch)
+            {
+                if (ch >= '0' && ch <= '9')
+                {
+                    return true;
+                }
+                else if (ch >= 'A' && ch <= 'F')
+                {
+                    return true;
+                }
+                else if (ch >= 'a' && ch <= 'f')
+                {
+                    return true;
+                }
+                else
+                {
+                    return false;
+                }
+            }
+
+            private void SkipNumber()
+            {
+                SkipWhitespace();
+
+                var start = offset;
+
+                if (PeekChar() == '-')
+                {
+                    offset++;
+                    start++;
+                }
+
+                while (Char.IsNumber(PeekChar()))
+                {
+                    offset++;
+                }
+
+                if (PeekChar() == '.')
+                {
+                    offset++;
+
+                    while (Char.IsNumber(PeekChar()))
+                    {
+                        offset++;
+                    }
+                }
+
+                if (PeekChar() == 'e' || PeekChar() == 'E')
+                {
+                    offset++;
+
+                    if (PeekChar() == '+' || PeekChar() == '-')
+                    {
+                        offset++;
+                    }
+
+                    while (Char.IsNumber(PeekChar()))
+                    {
+                        offset++;
+                    }
+                }
+            }
+
             private void SkipWhitespace()
             {
                 while (offset < text.Length && Char.IsWhiteSpace(text[offset]))
                 {
                     offset++;
                 }
+            }
+
+            private void SkipList()
+            {
+                ConsumeToken('[');
+
+                char ch;
+                while ((ch = PeekChar()) != '\0' && ch != '}')
+                {
+                    SkipObject();
+                }
+
+                ConsumeToken(']');
+            }
+
+            private void SkipDictionary()
+            {
+                ConsumeToken('{');
+
+                char ch;
+                while ((ch = PeekChar()) != '\0' && ch != '}')
+                {
+                    SkipString(); //key
+                    ConsumeToken(':');
+                    SkipObject(); // value
+
+                    if (!TryConsumeToken(','))
+                    {
+                        break;
+                    }
+                }
+
+                ConsumeToken('}');
             }
 
             private char PeekChar()
@@ -310,6 +499,7 @@ namespace Argo
             {
                 public abstract Type Type { get; }
                 public abstract object Decode(ref JsonDecoder decoder);
+                public virtual int GetMatchingMemberCount(List<string> names) { return 0; }
             }
 
             private abstract class ValueDecoder<T> : ValueDecoder
@@ -623,8 +813,24 @@ namespace Argo
 
                 public ObjectMemberDecoder(IEnumerable<EncodingMember> members)
                 {
-                    this.keyDecoder = GetValueDecoder<string>();
+                    this.keyDecoder = GetKeyDecoder<string>();
                     this.memberDecoders = members.ToDictionary(m => m.Name, m => CreateMemberDecoder(m));
+                }
+
+                public override int GetMatchingMemberCount(List<string> memberNames)
+                {
+                    int count = 0;
+
+                    foreach (var name in memberNames)
+                    {
+                        MemberDecoder<T> tmp;
+                        if (this.memberDecoders.TryGetValue(name, out tmp))
+                        {
+                            count++;
+                        }
+                    }
+
+                    return count;
                 }
 
                 private static MemberDecoder<T> CreateMemberDecoder(EncodingMember member)
@@ -634,11 +840,6 @@ namespace Argo
 
                 public override T DecodeTyped(ref JsonDecoder decoder)
                 {
-                    if (decoder.TryConsumeToken("null"))
-                    {
-                        return default(T);
-                    }
-
                     var instance = new T();
 
                     decoder.ConsumeToken('{');
@@ -668,6 +869,72 @@ namespace Argo
                     decoder.ConsumeToken('}');
 
                     return instance;
+                }
+            }
+
+            private class MultiObjectMemberDecoder<T> : ValueDecoder<T>
+                where T : class
+            {
+                private readonly List<ValueDecoder> decoders;
+                private readonly ValueDecoder<string> keyDecoder;
+
+                public MultiObjectMemberDecoder(IEnumerable<Type> subTypes)
+                {
+                    this.keyDecoder = GetKeyDecoder<string>();
+                    this.decoders = subTypes.Select(t => GetValueDecoder(t)).ToList();
+                }
+
+                internal static readonly ObjectPool<List<string>> listPool = new ObjectPool<List<string>>(() => new List<string>(10), list => list.Clear());
+
+                public override T DecodeTyped(ref JsonDecoder decoder)
+                {
+                    var memberNames = listPool.AllocateFromPool();
+                    try
+                    {
+                        var start = decoder.offset;
+                        decoder.ConsumeToken('{');
+
+                        char ch;
+                        while ((ch = decoder.PeekChar()) != '\0' && ch != '}')
+                        {
+                            var key = this.keyDecoder.DecodeTyped(ref decoder);
+                            memberNames.Add(key);
+                            decoder.ConsumeToken(':');
+                            decoder.SkipObject();
+                            if (!decoder.TryConsumeToken(','))
+                            {
+                                break;
+                            }
+                        }
+
+                        decoder.offset = start;
+
+                        var valueDecoder = GetBestMatchingDecoder(memberNames);
+                        return (T)valueDecoder.Decode(ref decoder);
+                    }
+                    finally 
+                    {
+                        listPool.ReturnToPool(memberNames);
+                    }
+                }
+
+                private ValueDecoder GetBestMatchingDecoder(List<string> memberNames)
+                {
+                    int bestCount = this.decoders[0].GetMatchingMemberCount(memberNames);
+                    var bestDecoder = this.decoders[0];
+
+                    for (int i = 1; i < this.decoders.Count; i++)
+                    {
+                        var decoder = this.decoders[i];
+                        var count = decoder.GetMatchingMemberCount(memberNames);
+                        if (count > bestCount)
+                        {
+                            bestCount = count;
+                            bestDecoder = decoder;
+                        }
+                    }
+
+                    return bestDecoder;
                 }
             }
 
@@ -942,6 +1209,11 @@ namespace Argo
                         return this.valueDecoder.DecodeTyped(ref decoder);
                     }
                 }
+
+                public override int GetMatchingMemberCount(List<string> names)
+                {
+                    return valueDecoder.GetMatchingMemberCount(names);
+                }
             }
 
             private static readonly ConcurrentDictionary<Type, ValueDecoder> valueDecoders
@@ -1085,18 +1357,31 @@ namespace Argo
                     }
                 }
 
-                // types with assignable members
-                var members = EncodingMember.GetEncodingMembers(type).Where(m => m.CanWrite).ToList().ToList();
-                if (members.Count > 0 && hasPublicDefaultConstructor)
+                if (type.IsAbstract)
                 {
-                    return (ValueDecoder)Activator.CreateInstance(typeof(ObjectMemberDecoder<>).MakeGenericType(type), new object[] { members });
+                    // if one or more subtypes are also declared then use them as possible subtypes.
+                    // TODO: add way to specify subtypes or set of types (do not get them from base type's assembly)
+                    var concreteTypes = type.Assembly.GetTypes().Where(t => t.IsClass && !t.IsAbstract && type.IsAssignableFrom(t)).ToList();
+                    if (concreteTypes.Count > 0)
+                    {
+                        return (ValueDecoder)Activator.CreateInstance(typeof(MultiObjectMemberDecoder<>).MakeGenericType(type), new object[] { concreteTypes });
+                    }
                 }
-
-                // can be parsed from string?
-                var stringDecoder = CreateTypedKeyDecoder(type);
-                if (stringDecoder != null)
+                else
                 {
-                    return stringDecoder;
+                    // types with assignable members
+                    var members = EncodingMember.GetEncodingMembers(type).Where(m => m.CanWrite).ToList().ToList();
+                    if (members.Count > 0 && hasPublicDefaultConstructor)
+                    {
+                        return (ValueDecoder)Activator.CreateInstance(typeof(ObjectMemberDecoder<>).MakeGenericType(type), new object[] { members });
+                    }
+
+                    // can be parsed from string?
+                    var stringDecoder = CreateTypedKeyDecoder(type);
+                    if (stringDecoder != null)
+                    {
+                        return stringDecoder;
+                    }
                 }
 
                 throw new InvalidOperationException(string.Format("The type '{0}' cannot be decoded from JSON.", type));
@@ -1234,8 +1519,7 @@ namespace Argo
 
                 InitClassDecoder(new StringDecoder<string>(s => s, false));
 
-                InitClassDecoder(new FuncDecoder<object>((ref JsonDecoder d) =>
-                    DecodeObject(ref d)));
+                InitClassDecoder(new FuncDecoder<object>((ref JsonDecoder d) => d.DecodeObject()));
 
                 InitStructDecoder(new FuncDecoder<bool>((ref JsonDecoder d) =>
                 {

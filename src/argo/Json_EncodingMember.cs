@@ -41,10 +41,10 @@ namespace Argo
                 var prop = member as PropertyInfo;
                 if (prop != null)
                 {
-                    var instanceParam = Expression.Parameter(prop.DeclaringType.MakeByRefType(), "instance");
+                    var instanceParam = Expression.Parameter(prop.ReflectedType.MakeByRefType(), "instance");
                     var valueParam = Expression.Parameter(prop.PropertyType, "value");
 
-                    var argTypes = new Type[] { prop.DeclaringType, prop.PropertyType };
+                    var argTypes = new Type[] { member.ReflectedType, prop.PropertyType };
                     var getterType = typeof(GetAccessor<,>).MakeGenericType(argTypes);
                     var getter = Expression.Lambda(getterType, Expression.Property(instanceParam, prop), instanceParam).Compile();
                     var setterType = typeof(SetAccessor<,>).MakeGenericType(argTypes);
@@ -56,10 +56,10 @@ namespace Argo
                 var field = member as FieldInfo;
                 if (field != null)
                 {
-                    var instanceParam = Expression.Parameter(field.DeclaringType.MakeByRefType(), "instance");
+                    var instanceParam = Expression.Parameter(field.ReflectedType.MakeByRefType(), "instance");
                     var valueParam = Expression.Parameter(field.FieldType, "value");
 
-                    var argTypes = new Type[] { field.DeclaringType, field.FieldType };
+                    var argTypes = new Type[] { member.ReflectedType, field.FieldType };
                     var getterType = typeof(GetAccessor<,>).MakeGenericType(argTypes);
                     var getter = Expression.Lambda(getterType, Expression.Field(instanceParam, field), instanceParam).Compile();
                     var setterType = typeof(SetAccessor<,>).MakeGenericType(argTypes);
