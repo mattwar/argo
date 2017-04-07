@@ -51,7 +51,7 @@ namespace Utilities
                 if (this.items[i] == null)
                 {
                     var result = Interlocked.CompareExchange(ref this.items[i], item, null);
-                    if (result == item)
+                    if (result == null)
                     {
                         break;
                     }
