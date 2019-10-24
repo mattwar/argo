@@ -5,12 +5,14 @@ using System.Globalization;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
+using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace UnitTests
 {
     using Argo;
     using Test;
 
+    [TestClass]
     public class UnitTests
     {
         private static void TestEncode<T>(T value, string expected)
@@ -31,6 +33,12 @@ namespace UnitTests
             TestDecode<T>(expected, value);
         }
 
+        public void TestDecode1()
+        {
+            TestEncodeDecode<float>(float.Epsilon, float.Epsilon.ToString("R", CultureInfo.InvariantCulture));
+        }
+
+        [TestMethod]
         public void TestNumbers()
         {
             TestEncodeDecode<byte>(0, "0");
@@ -115,6 +123,7 @@ namespace UnitTests
             TestEncodeDecode<decimal?>(null, "null");
         }
 
+        [TestMethod]
         public void TestStrings()
         {
             TestEncodeDecode("Hello JSON", @"""Hello JSON""");
@@ -142,12 +151,14 @@ namespace UnitTests
             TestDecode(@"""\uffFF""", (char)0xffff);
         }
 
+        [TestMethod]
         public void TestParsables()
         {
-            var guid = Guid.Parse("24b56d9f-2597-447a-92d0-4f5315e5b2be");               
+            var guid = Guid.Parse("24b56d9f-2597-447a-92d0-4f5315e5b2be");
             TestEncodeDecode(guid, @"""" + guid.ToString() + @"""");
         }
 
+        [TestMethod]
         public void TestLists()
         {
             var ints = new int[] { 1, 2, 3 };
@@ -171,14 +182,26 @@ namespace UnitTests
             Assert.Equal(3, decodedEnumerableInts.ElementAt(2));
         }
 
+        [TestMethod]
         public void TestDictionaries()
         {
             var d = new Dictionary<string, int> { { "A", 1 }, { "B", 2 }, { "C", 3 } };
             TestEncodeDecode(d, @"{""A"": 1, ""B"": 2, ""C"": 3}");
+        }
 
+        [TestMethod]
+        public void TestDictionaryWithStringableKey()
+        {
+            // json can only have string literal keys in maps
+            // allow any type that can be converted to/from string as a key
             var dints = new Dictionary<int, string> { { 1, "A" }, { 2, "B" }, { 3, "C" } };
             TestEncodeDecode(dints, @"{""1"": ""A"", ""2"": ""B"", ""3"": ""C""}");
+        }
 
+        [TestMethod]
+        public void TestImmutableDictionaries()
+        {
+            var d = new Dictionary<string, int> { { "A", 1 }, { "B", 2 }, { "C", 3 } };
             var imd = d.ToImmutableDictionary();
             var encoded = Json.Encode(imd);
             var decoded = Json.Decode<ImmutableDictionary<string, int>>(encoded);
@@ -188,6 +211,7 @@ namespace UnitTests
             Assert.Equal(imd["C"], decoded["C"]);
         }
 
+        [TestMethod]
         public void TestClassWithFields()
         {
             TestEncode<TestClass<int, int>>(null, "null");
@@ -218,8 +242,10 @@ namespace UnitTests
             return new TestClass<Tx, Ty> { X = x, Y = y };
         }
 
+        [TestMethod]
         public void TestSubTypes()
         {
+            // distinguish subtype based on differnce in existing member names
             TestDecode<BaseType>(@"{""X"": 5, ""Y"": ""Hello""}", new DerivedType1 { X = 5, Y = "Hello" });
             TestDecode<BaseType>(@"{""X"": 5, ""Z"": 4.9}", new DerivedType2 { X = 5, Z = 4.9f });
         }

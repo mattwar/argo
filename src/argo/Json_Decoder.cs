@@ -10,21 +10,26 @@ using System.Text;
 
 namespace Argo
 {
+    using System.IO;
     using Utilities;
 
     public static partial class Json
     {
-        private struct JsonDecoder
+        private ref struct JsonDecoder
         {
-            private string text;
+            private readonly Encoding encoding;
+            private ReadOnlySpan<byte> encodedText;
             private int offset;
             private StringTable strings;
+            private EncodedStringTable encodedStrings;
 
-            private JsonDecoder(string text)
+            private JsonDecoder(ReadOnlySpan<byte> encodedText, Encoding encoding)
             {
-                this.text = text;
+                this.encodedText = encodedText;
+                this.encoding = encoding;
                 this.offset = 0;
                 this.strings = null;
+                this.encodedStrings = null;
             }
 
             private string InternString(StringBuilder builder)
@@ -39,31 +44,31 @@ namespace Argo
 
             private string InternString(int offset, int length)
             {
-                if (this.strings == null)
+                if (this.encodedStrings == null)
                 {
-                    this.strings = new StringTable();
+                    this.encodedStrings = new EncodedStringTable(Encoding.UTF8);
                 }
 
-                return this.strings.GetOrAdd(text, offset, length);
+                return this.encodedStrings.GetOrAdd(encodedText, offset, length);
             }
 
-            public static object Decode(string text, Type type)
+            public static object Decode(ReadOnlySpan<byte> encodedText, Encoding encoding, Type type)
             {
-                var decoder = new JsonDecoder(text); 
+                var decoder = new JsonDecoder(encodedText, encoding); 
                 var valueDecoder = GetValueDecoder(type);
                 return valueDecoder.Decode(ref decoder);
             }
 
-            public static T Decode<T>(string text)
+            public static T Decode<T>(ReadOnlySpan<byte> encodedText, Encoding encoding)
             {
-                var decoder = new JsonDecoder(text);
+                var decoder = new JsonDecoder(encodedText, encoding);
                 var valueDecoder = GetValueDecoder<T>();
                 return valueDecoder.DecodeTyped(ref decoder);
             }
 
-            public static Dictionary<string, object> Decode(string text, IEnumerable<KeyValuePair<string, Type>> valueTypes)
+            public static Dictionary<string, object> Decode(ReadOnlySpan<byte> encodedText, Encoding encoding, IEnumerable<KeyValuePair<string, Type>> valueTypes)
             {
-                var decoder = new JsonDecoder(text);
+                var decoder = new JsonDecoder(encodedText, encoding);
                 var valueDecoder = new DictionaryLookupDecoder(valueTypes);
                 return valueDecoder.DecodeTyped(ref decoder);
             }
@@ -141,57 +146,56 @@ namespace Argo
                 var start = offset;
 
                 bool negate = false;
-                if (PeekChar() == '-')
+                if (ReadChar('-'))
                 {
                     negate = true;
-                    offset++;
-                    start++;
+                    start = this.offset;
                 }
 
-                while (Char.IsNumber(PeekChar()))
+                while (ReadChar(c => char.IsNumber(c)))
                 {
-                    offset++;
                 }
 
                 hasFraction = false;
-                if (PeekChar() == '.')
+                if (ReadChar('.'))
                 {
-                    offset++;
                     hasFraction = true;
 
-                    while (Char.IsNumber(PeekChar()))
+                    while (ReadChar(c => char.IsNumber(c)))
                     {
-                        offset++;
                     }
                 }
 
                 bool hasExponent = false;
-                if (PeekChar() == 'e' || PeekChar() == 'E')
+                if (ReadChar(c => c == 'e' || c == 'E'))
                 {
-                    offset++;
+                    hasExponent = true;
 
-                    if (PeekChar() == '+' || PeekChar() == '-')
+                    if (ReadChar(c => c == '+' || c == '-'))
                     {
-                        offset++;
                     }
 
-                    while (Char.IsNumber(PeekChar()))
+                    while (ReadChar(c => char.IsNumber(c)))
                     {
-                        offset++;
                     }
                 }
 
                 if (!hasFraction && !hasExponent)
                 {
-                    for (int x = start; x < offset; x++)
+                    var finalOffset = this.offset;
+
+                    this.offset = start;
+                    while (this.offset < finalOffset && this.ReadChar(out var ch))
                     {
-                        dec = dec * 10 + (text[x] - '0');
+                        dec = dec * 10 + (ch - '0');
                     }
 
                     if (negate)
                     {
                         dec = -dec;
                     }
+
+                    this.offset = finalOffset;
 
                     return NumberKind.Decimal;
                 }
@@ -256,16 +260,15 @@ namespace Argo
             {
                 ConsumeToken('"');
 
-                char ch;
-                while ((ch = PeekChar()) != '\0' && ch != '"')
+                while (IsCodeUnit(c => c != '"', out var cu))
                 {
-                    if (ch == '\\')
+                    if (cu == '\\')
                     {
                         SkipEscapedChar();
                     }
                     else
                     {
-                        offset++;
+                        Read();
                     }
                 }
 
@@ -274,44 +277,34 @@ namespace Argo
 
             private void SkipEscapedChar()
             {
-                offset++; // for first \
+                this.Read(); // for first \
 
-                var ch = PeekChar();
-                switch (ch)
+                if (this.Read(out var cu))
                 {
-                    case '"':
-                    case '\\':
-                    case '/':
-                    case 'b':
-                    case 'f':
-                    case 'r':
-                    case 'n':
-                    case 't':
-                    default:
-                        offset++;
-                        break;
-                    case 'u':
-                        offset++;
-                        SkipHexNumber(4);
-                        break;
+                    switch (cu)
+                    {
+                        case '"':
+                        case '\\':
+                        case '/':
+                        case 'b':
+                        case 'f':
+                        case 'r':
+                        case 'n':
+                        case 't':
+                        default:
+                            break;
+                        case 'u':
+                            SkipHexNumber(4);
+                            break;
+                    }
                 }
             }
 
             private void SkipHexNumber(int maxLength)
             {
                 var start = offset;
-
-                char ch;
-                while ((ch = PeekChar()) != '\0' && offset - start < maxLength)
+                while (offset - start < maxLength && ReadChar(c => IsHexDigit(c)))
                 {
-                    if (IsHexDigit(ch))
-                    {
-                        offset++;
-                    }
-                    else
-                    {
-                        break;
-                    }
                 }
             }
 
@@ -339,50 +332,40 @@ namespace Argo
             {
                 SkipWhitespace();
 
-                var start = offset;
+                var start = this.offset;
 
-                if (PeekChar() == '-')
+                if (ReadChar('-'))
                 {
-                    offset++;
-                    start++;
+                    start = this.offset;
                 }
 
-                while (Char.IsNumber(PeekChar()))
+                while (ReadChar(c => char.IsNumber(c)))
                 {
-                    offset++;
                 }
 
-                if (PeekChar() == '.')
+                if (ReadChar('.'))
                 {
-                    offset++;
-
-                    while (Char.IsNumber(PeekChar()))
+                    while (ReadChar(c => char.IsNumber(c)))
                     {
-                        offset++;
                     }
                 }
 
-                if (PeekChar() == 'e' || PeekChar() == 'E')
+                if (Read(c => c == 'e' || c == 'E'))
                 {
-                    offset++;
-
-                    if (PeekChar() == '+' || PeekChar() == '-')
+                    if (Read(c => c == '+' || c == '-'))
                     {
-                        offset++;
                     }
 
-                    while (Char.IsNumber(PeekChar()))
+                    while (ReadChar(c => char.IsNumber(c)))
                     {
-                        offset++;
                     }
                 }
             }
 
             private void SkipWhitespace()
             {
-                while (offset < text.Length && Char.IsWhiteSpace(text[offset]))
+                while (ReadChar(c => char.IsWhiteSpace(c)))
                 {
-                    offset++;
                 }
             }
 
@@ -390,8 +373,8 @@ namespace Argo
             {
                 ConsumeToken('[');
 
-                char ch;
-                while ((ch = PeekChar()) != '\0' && ch != '}')
+                int cu;
+                while ((cu = Peek()) != '\0' && cu != '}')
                 {
                     SkipObject();
                 }
@@ -403,8 +386,8 @@ namespace Argo
             {
                 ConsumeToken('{');
 
-                char ch;
-                while ((ch = PeekChar()) != '\0' && ch != '}')
+                int cu;
+                while ((cu = Peek()) != '\0' && cu != '}')
                 {
                     SkipString(); //key
                     ConsumeToken(':');
@@ -419,40 +402,255 @@ namespace Argo
                 ConsumeToken('}');
             }
 
-            private char PeekChar()
+            /// <summary>
+            /// Returns the current code unit.
+            /// </summary>
+            private int Peek()
             {
-                if (offset < text.Length)
+                if (offset < encodedText.Length)
                 {
-                    return text[offset];
+                    return (char)EncodingUtil.ReadCode(encoding, encodedText, this.offset, out _);
                 }
 
-                return '\0';
+                return 0;
             }
 
+            /// <summary>
+            /// Returns true if the current code unit is the specific char.
+            /// </summary>
+            private bool IsChar(char ch)
+            {
+                if (this.offset >= this.encodedText.Length)
+                    return false;
+
+                var code = EncodingUtil.ReadCode(encoding, encodedText, this.offset, out var length);
+                return length <= sizeof(char) && ch == (char)code;
+            }
+
+            /// <summary>
+            /// Returns true if the current code unit is a char and matches the specified condition.
+            /// Returns the matching char as an out-parameter.
+            /// </summary>
+            private bool IsChar(Func<char, bool> fnTest, out char ch)
+            {
+                ch = '\0';
+
+                if (this.offset >= this.encodedText.Length)
+                    return false;
+
+                var code = EncodingUtil.ReadCode(encoding, encodedText, this.offset, out var length);
+                ch = unchecked((char)code);
+
+                return length < sizeof(char) && fnTest(ch);
+            }
+
+            /// <summary>
+            /// Returns true if the current code unit matches the specified condition.
+            /// Returns the matching code unit as an out-parameter.
+            /// </summary>
+            private bool IsCodeUnit(Func<int, bool> fnTest, out int code)
+            {
+                code = 0;
+
+                if (this.offset >= this.encodedText.Length)
+                    return false;
+
+                code = EncodingUtil.ReadCode(encoding, encodedText, this.offset, out var length);
+                return fnTest(code);
+            }
+
+            /// <summary>
+            /// Returns true if the current code unit matches the specified condition.
+            /// </summary>
+            private bool IsCodeUnit(Func<int, bool> fnTest)
+            {
+                return IsCodeUnit(fnTest, out _);
+            }
+
+            /// <summary>
+            /// Advances past the current code unit.
+            /// Returns true if there was a code unit to advanced past.
+            /// </summary>
+            private bool Read()
+            {
+                return Read(out _);
+            }
+
+            /// <summary>
+            /// Advances past the current code unit.
+            /// Returns true if there was a code unit to advance past.
+            /// Returns the code unit as an out-parameter.
+            /// </summary>
+            private bool Read(out int code)
+            {
+                if (this.offset >= this.encodedText.Length)
+                {
+                    code = 0;
+                    return false;
+                }
+
+                code = EncodingUtil.ReadCode(encoding, encodedText, this.offset, out var length);
+                this.offset += length;
+
+                return true;
+            }
+
+            /// <summary>
+            /// Returns true if the current code unit is a character that passes the specified condition and advances to the next code unit if so.
+            /// </summary>
+            private bool Read(Func<int, bool> fnTest)
+            {
+                return Read(fnTest, out _);
+            }
+
+            /// <summary>
+            /// Reads the next code unit from the encoded text that matches the condition
+            /// </summary>
+            private bool Read(Func<int, bool> fnTest, out int code)
+            {
+                code = 0;
+
+                if (this.offset >= this.encodedText.Length)
+                    return false;
+
+                code = EncodingUtil.ReadCode(encoding, encodedText, this.offset, out var length);
+
+                if (fnTest(code))
+                {
+                    this.offset += length;
+                    return true;
+                }
+
+                return false;
+            }
+
+            /// <summary>
+            /// Advances past the next code unit if it that matches the specified char.
+            /// Returns false if the code unit does not match or there are no more code units.
+            /// </summary>
+            private bool ReadChar(char ch)
+            {
+                if (this.offset >= this.encodedText.Length)
+                    return false;
+
+                var code = EncodingUtil.ReadCode(encoding, encodedText, this.offset, out var length);
+                
+                if (length <= sizeof(char) && ch == (char)code)
+                {
+                    this.offset += length;
+                    return true;
+                }
+
+                return false;
+            }
+
+            /// <summary>
+            /// Advances past the next code unit if it is a char.
+            /// Returns false if the code unit does is not a char or there are no more code units.
+            /// Returns the char as an out-parameter.
+            /// </summary>
+            private bool ReadChar(out char ch)
+            {
+                if (this.offset >= this.encodedText.Length)
+                {
+                    ch = '\0';
+                    return false;
+                }
+
+                var code = EncodingUtil.ReadCode(encoding, encodedText, this.offset, out var length);
+
+                if (length <= sizeof(char))
+                {
+                    ch = (char)code;
+                    this.offset += length;
+                    return true;
+                }
+                else
+                {
+                    ch = '\0';
+                    return false;
+                }
+            }
+
+            /// <summary>
+            /// Advances past the next code unit if it is a char that matches the condition.
+            /// Returns false if the next code unit is not a char, does not match the condition or there are no more code units.
+            /// </summary>
+            private bool ReadChar(Func<char, bool> fnTest)
+            {
+                return ReadChar(fnTest, out _);
+            }
+
+            /// <summary>
+            /// Advances past the next code unit if it is a char that matches the condition.
+            /// Returns false if the code unit is not a char, does not match the condition or there are no more code units.
+            /// </summary>
+            private bool ReadChar(Func<char, bool> fnTest, out char ch)
+            {
+
+                if (this.offset >= this.encodedText.Length)
+                {
+                    ch = '\0';
+                    return false;
+                }
+
+                var code = EncodingUtil.ReadCode(encoding, encodedText, this.offset, out var length);
+                ch = unchecked((char)code);
+
+                if (length < sizeof(char) && fnTest(ch))
+                {
+                    this.offset += length;
+                    return true;
+                }
+
+                return false;
+            }
+
+            /// <summary>
+            /// Returns true if the next non whitespace character is the specified character.
+            /// </summary>
             private bool IsToken(char token)
             {
                 SkipWhitespace();
 
-                if (offset < text.Length)
+                if (offset < encodedText.Length)
                 {
-                    return text[offset] == token;
+                    return Peek() == token;
                 }
 
                 return false;
             }
 
+            /// <summary>
+            /// Returns true if the next non-whitespace sequence of characters matches the specified string.
+            /// </summary>
             private bool IsToken(string token)
             {
                 SkipWhitespace();
 
-                if (offset + token.Length <= text.Length)
+                var originalOffset = this.offset;
+
+                if (offset + token.Length <= encodedText.Length)
                 {
-                    return string.CompareOrdinal(text, offset, token, 0, token.Length) == 0;
+                    for (int i = 0; i < token.Length; i++)
+                    {
+                        if (!this.ReadChar(c => c == token[i]))
+                        {
+                            this.offset = originalOffset;
+                            return false;
+                        }
+                    }
+
+                    this.offset = originalOffset;
+                    return true;
                 }
 
                 return false;
             }
 
+            /// <summary>
+            /// Asserts that the next non-whitespace character is the specified character and advances beyond it.
+            /// </summary>
             private void ConsumeToken(char token)
             {
                 if (!TryConsumeToken(token))
@@ -461,38 +659,52 @@ namespace Argo
                 }
             }
 
-            private void ConsumeToken(string token)
-            {
-                if (!TryConsumeToken(token))
-                {
-                    throw new InvalidOperationException(string.Format("Expected token '{0}' not found at offset {1}", token, offset));
-                }
-            }
-
+            /// <summary>
+            /// Returns true if the next non-whitespace character is the specified character.
+            /// </summary>
             private bool TryConsumeToken(char token)
             {
                 SkipWhitespace();
 
-                if (IsToken(token))
+                var start = this.offset;
+                if (ReadChar(token))
                 {
-                    offset += 1;
                     return true;
                 }
-
-                return false;
+                else
+                {
+                    this.offset = start;
+                    return false;
+                }
             }
 
+            /// <summary>
+            /// Returns true if the next non-whitespace sequence of characters matches the specified string.
+            /// </summary>
             private bool TryConsumeToken(string token)
             {
                 SkipWhitespace();
 
-                if (IsToken(token))
+                var originalOffset = this.offset;
+
+                if (offset + token.Length <= encodedText.Length)
                 {
-                    offset += token.Length;
+                    for (int i = 0; i < token.Length; i++)
+                    {
+                        if (!this.ReadChar(out var ch) || ch != token[i])
+                        {
+                            this.offset = originalOffset;
+                            return false;
+                        }
+                    }
+
                     return true;
                 }
-
-                return false;
+                else
+                {
+                    this.offset = originalOffset;
+                    return false;
+                }
             }
 
             private abstract class ValueDecoder
@@ -551,8 +763,8 @@ namespace Argo
                     {
                         decoder.ConsumeToken('[');
 
-                        char ch;
-                        while ((ch = decoder.PeekChar()) != '\0' && ch != '}')
+                        int cu;
+                        while ((cu = decoder.Peek()) != '\0' && cu != '}')
                         {
                             list.Add(this.elementDecoder.DecodeTyped(ref decoder));
 
@@ -593,8 +805,8 @@ namespace Argo
 
                     decoder.ConsumeToken('[');
 
-                    char ch;
-                    while ((ch = decoder.PeekChar()) != '\0' && ch != ']')
+                    int cu;
+                    while ((cu = decoder.Peek()) != '\0' && cu != ']')
                     {
                         this.elementAdder(list, this.elementDecoder.DecodeTyped(ref decoder));
 
@@ -637,8 +849,8 @@ namespace Argo
 
                         decoder.ConsumeToken('[');
 
-                        char ch;
-                        while ((ch = decoder.PeekChar()) != '\0' && ch != ']')
+                        int cu;
+                        while ((cu = decoder.Peek()) != '\0' && cu != ']')
                         {
                             list.Add(this.elementDecoder.DecodeTyped(ref decoder));
 
@@ -685,8 +897,8 @@ namespace Argo
 
                     decoder.ConsumeToken('{');
 
-                    char ch;
-                    while ((ch = decoder.PeekChar()) != '\0' && ch != '}')
+                    int cu;
+                    while ((cu = decoder.Peek()) != '\0' && cu != '}')
                     {
                         var key = keyDecoder.DecodeTyped(ref decoder);
                         decoder.ConsumeToken(':');
@@ -727,8 +939,8 @@ namespace Argo
                     {
                         decoder.ConsumeToken('{');
 
-                        char ch;
-                        while ((ch = decoder.PeekChar()) != '\0' && ch != '}')
+                        int cu;
+                        while ((cu = decoder.Peek()) != '\0' && cu != '}')
                         {
                             var key = keyDecoder.DecodeTyped(ref decoder);
                             decoder.ConsumeToken(':');
@@ -777,8 +989,8 @@ namespace Argo
 
                     decoder.ConsumeToken('{');
 
-                    char ch;
-                    while ((ch = decoder.PeekChar()) != '\0' && ch != '}')
+                    int cu;
+                    while ((cu = decoder.Peek()) != '\0' && cu != '}')
                     {
                         var key = this.keyDecoder.DecodeTyped(ref decoder);
                         decoder.ConsumeToken(':');
@@ -844,8 +1056,8 @@ namespace Argo
 
                     decoder.ConsumeToken('{');
 
-                    char ch;
-                    while ((ch = decoder.PeekChar()) != '\0' && ch != '}')
+                    int cu;
+                    while ((cu = decoder.Peek()) != '\0' && cu != '}')
                     {
                         var key = this.keyDecoder.DecodeTyped(ref decoder);
                         decoder.ConsumeToken(':');
@@ -894,8 +1106,8 @@ namespace Argo
                         var start = decoder.offset;
                         decoder.ConsumeToken('{');
 
-                        char ch;
-                        while ((ch = decoder.PeekChar()) != '\0' && ch != '}')
+                        int cu;
+                        while ((cu = decoder.Peek()) != '\0' && cu != '}')
                         {
                             var key = this.keyDecoder.DecodeTyped(ref decoder);
                             memberNames.Add(key);
@@ -1021,7 +1233,8 @@ namespace Argo
 
                 public override T DecodeTyped(ref JsonDecoder decoder)
                 {
-                    StringBuilder builder = null;
+                    StringBuilder builder = builderPool.AllocateFromPool();
+
 
                     try
                     {
@@ -1029,27 +1242,30 @@ namespace Argo
 
                         var start = decoder.offset;
 
-                        char ch;
-                        while ((ch = decoder.PeekChar()) != '\0' && ch != '"')
+                        int cu;
+                        while ((cu = decoder.Peek()) != '\0' && cu != '"')
                         {
-                            if (ch == '\\')
+                            if (cu == '\\')
                             {
-                                if (builder == null)
-                                {
-                                    builder = builderPool.AllocateFromPool();
-                                    builder.Append(decoder.text, start, decoder.offset - start);
-                                }
-
                                 builder.Append(DecodeEscapedChar(ref decoder));
                             }
                             else if (builder != null)
                             {
-                                builder.Append(ch);
-                                decoder.offset++;
+                                if (cu <= char.MaxValue)
+                                {
+                                    builder.Append((char)cu);
+                                }
+                                else
+                                {
+                                    // encode as multi-byte....
+                                    throw new NotImplementedException();
+                                }
+
+                                decoder.Read();
                             }
                             else
                             {
-                                decoder.offset++;
+                                decoder.Read();
                             }
                         }
 
@@ -1058,12 +1274,8 @@ namespace Argo
                         decoder.ConsumeToken('"');
 
                         string value = intern
-                                ? (builder != null)
-                                    ? decoder.InternString(builder)
-                                    : decoder.InternString(start, end - start)
-                                : (builder != null)
-                                    ? builder.ToString()
-                                    : decoder.text.Substring(start, end - start);
+                                ? decoder.InternString(builder)
+                                : builder.ToString();
 
                         return this.parser(value);
                     }
@@ -1078,42 +1290,42 @@ namespace Argo
 
                 private static char DecodeEscapedChar(ref JsonDecoder decoder)
                 {
-                    decoder.offset++; // for first \
+                    decoder.Read(); // for first \
 
-                    var ch = decoder.PeekChar();
-                    switch (ch)
+                    var cu = decoder.Peek();
+                    switch (cu)
                     {
                         case '"':
-                            decoder.offset++;
+                            decoder.Read();
                             return '"';
                         case '\\':
-                            decoder.offset++;
+                            decoder.Read();
                             return '\\';
                         case '/':
-                            decoder.offset++;
+                            decoder.Read();
                             return '/';
                         case 'b':
-                            decoder.offset++;
+                            decoder.Read();
                             return '\b';
                         case 'f':
-                            decoder.offset++;
+                            decoder.Read();
                             return '\f';
                         case 'r':
-                            decoder.offset++;
+                            decoder.Read();
                             return '\r';
                         case 'n':
-                            decoder.offset++;
+                            decoder.Read();
                             return '\n';
                         case 't':
-                            decoder.offset++;
+                            decoder.Read();
                             return '\t';
                         case 'u':
-                            decoder.offset++;
+                            decoder.Read();
                             return (char)ParseHexNumber(ref decoder, 4);
                         default:
                             // bad escaped: throw exception here?
-                            decoder.offset++;
-                            return ch;
+                            decoder.Read();
+                            return (char)cu;
                     }
                 }
 
@@ -1122,13 +1334,13 @@ namespace Argo
                     var start = decoder.offset;
                     uint number = 0;
 
-                    char ch;
-                    while ((ch = decoder.PeekChar()) != '\0' && decoder.offset - start < maxLength)
+                    int cu;
+                    while ((cu = decoder.Peek()) != '\0' && decoder.offset - start < maxLength)
                     {
                         uint digit;
-                        if (TryGetHexDigitValue(ch, out digit))
+                        if (TryGetHexDigitValue(cu, out digit))
                         {
-                            decoder.offset++;
+                            decoder.Read();
                             number = (number << 4) + digit;
                         }
                         else
@@ -1140,7 +1352,7 @@ namespace Argo
                     return number;
                 }
 
-                private static bool TryGetHexDigitValue(char ch, out uint value)
+                private static bool TryGetHexDigitValue(int ch, out uint value)
                 {
                     if (ch >= '0' && ch <= '9')
                     {

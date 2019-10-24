@@ -34,11 +34,13 @@ namespace PerfTests
                 var decoded = Json.Decode<T>(json);
             });
 
+#if false
             var aspTime = RunTimedTest(iterations, n =>
             {
                 var serializer = new System.Web.Script.Serialization.JavaScriptSerializer();
                 var decoded = serializer.Deserialize<T>(json);
             });
+#endif
 
             var newtonTime = RunTimedTest(iterations, n =>
             {
@@ -48,7 +50,7 @@ namespace PerfTests
             Console.WriteLine();
             Console.WriteLine(title);
             Console.WriteLine("Argo:   {0}", argoTime * 100000);
-            Console.WriteLine("ASP:    {0}", aspTime * 100000);
+            //Console.WriteLine("ASP:    {0}", aspTime * 100000);
             Console.WriteLine("Newton: {0}", newtonTime * 100000);
         }
 
@@ -74,11 +76,13 @@ namespace PerfTests
                 var json = Json.Encode(value);
             });
 
+#if false
             var aspTime = RunTimedTest(iterations, n =>
             {
                 var serializer = new System.Web.Script.Serialization.JavaScriptSerializer();
                 var json = serializer.Serialize(value);
             });
+#endif
 
             var newtonTime = RunTimedTest(iterations, n =>
             {
@@ -88,7 +92,7 @@ namespace PerfTests
             Console.WriteLine();
             Console.WriteLine(title);
             Console.WriteLine("Argo:   {0}", argoTime * 100000);
-            Console.WriteLine("ASP:    {0}", aspTime * 100000);
+            //Console.WriteLine("ASP:    {0}", aspTime * 100000);
             Console.WriteLine("Newton: {0}", newtonTime * 100000);
         }
 

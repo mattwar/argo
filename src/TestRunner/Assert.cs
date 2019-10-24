@@ -62,6 +62,12 @@ namespace Test
                 return false;
             }
 
+            TypeCode code = Type.GetTypeCode(type);
+            if (code != TypeCode.Object)
+            {
+                return false;
+            }
+
             // compare sequences
             if (typeof(IEnumerable).IsAssignableFrom(type))
             {

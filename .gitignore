@@ -181,3 +181,5 @@ UpgradeLog*.htm
 
 # Microsoft Fakes
 FakesAssemblies/
+/src/.vs/Argo/DesignTimeBuild/.dtbcache
+/src/.vs/Argo/v16
